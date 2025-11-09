@@ -1,0 +1,57 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\title{Sample LaTeX Document}
+\author{Your Name}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This is a sample LaTeX document to test the compilation process. LaTeX is a powerful typesetting system commonly used for academic and technical documents.
+
+\section{Mathematics}
+
+Here's some inline math: $E = mc^2$
+
+And here's a displayed equation:
+\begin{equation}
+    \int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+\end{equation}
+
+\section{Lists}
+
+\begin{itemize}
+    \item First item
+    \item Second item
+    \begin{itemize}
+        \item Nested item 1
+        \item Nested item 2
+    \end{itemize}
+    \item Third item
+\end{itemize}
+
+\section{Tables}
+
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Name} & \textbf{Age} & \textbf{City} \\
+\hline
+Alice & 25 & New York \\
+Bob & 30 & Los Angeles \\
+Charlie & 35 & Chicago \\
+\hline
+\end{tabular}
+
+\section{Conclusion}
+
+This document demonstrates basic LaTeX features. If you can see this compiled properly, then the LaTeX compilation is working correctly!
+
+\end{document}

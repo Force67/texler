@@ -1,0 +1,12 @@
+{
+  "name": "texler-latex-service",
+  "version": "1.0.0",
+  "description": "LaTeX compilation service for Texler",
+  "main": "server.js",
+  "scripts": {
+    "start": "python3 server.py",
+    "dev": "python3 server.py"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

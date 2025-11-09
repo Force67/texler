@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  latex:
+    build:
+      context: ./docker/latex
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./docker/latex:/app
+    environment:
+      - FLASK_ENV=development
+    container_name: texler-latex
+    restart: unless-stopped
+
+  # Future services will be added here
+  # frontend:
+  #   build: ./apps/web
+  #   ports:
+  #     - "3000:3000"
+  #   container_name: texler-frontend
+  #   restart: unless-stopped
+
+  # backend:
+  #   build: ./packages/backend
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   container_name: texler-backend
+  #   restart: unless-stopped
+
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_DB: texler
+  #     POSTGRES_USER: texler
+  #     POSTGRES_PASSWORD: texler
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   container_name: texler-postgres
+  #   restart: unless-stopped
+
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   container_name: texler-redis
+  #   restart: unless-stopped
+
+# volumes:
+#   postgres_data:
