@@ -19,9 +19,9 @@ nix develop
 ```
 
 This will:
-- Install Node.js 20 and npm
-- Set up the Vite development environment
-- Install web app dependencies automatically
+- Install Bun package manager and runtime
+- Set up the Bun + Vite development environment
+- Install web app dependencies automatically with bun.lockb
 - Provide helpful development tools
 
 ### 2. Start the Full Development Stack
@@ -31,13 +31,13 @@ This will:
 # Terminal 1: Start LaTeX compilation service
 docker-compose up
 
-# Terminal 2: Start Vite development server (in nix develop shell)
-npm run dev
+# Terminal 2: Start Bun + Vite development server (in nix develop shell)
+bun run dev
 ```
 
 #### Option B: Use Nix apps directly
 ```bash
-# Start Vite development server
+# Start Bun + Vite development server
 nix run .#dev
 
 # Or build for production
@@ -55,16 +55,17 @@ nix run .#build
 Inside the `nix develop` shell:
 
 ```bash
-# Modern Vite development
-npm run dev          # Start Vite development server
-npm run build        # Build for production (TypeScript + Vite)
-npm run preview      # Preview production build
-npm test             # Run tests with Vitest
-npm run lint         # Lint TypeScript/React code
+# Ultra-fast Bun + Vite development
+bun run dev          # Start Vite development server (~3x faster than npm)
+bun run build        # Build for production (TypeScript + Vite)
+bun run preview      # Preview production build
+bun test             # Run tests with Vitest
+bun run lint         # Lint TypeScript/React code
+bunx                # Run any Bun package globally
 
 # Nix-specific commands
-node2nix -i apps/web/package.json -l apps/web/package-lock.json -c
-                  # Generate Nix expressions from npm dependencies
+node2nix -i apps/web/package.json -l apps/web/bun.lockb -c
+                  # Generate Nix expressions from bun dependencies
 ```
 
 ## Nix Flake Structure
