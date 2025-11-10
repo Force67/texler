@@ -16,6 +16,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [isFirstCompile, setIsFirstCompile] = useState(true);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const [editorZoom, setEditorZoom] = useState(14);
 
   const compileLatex = useCallback(async () => {
     const compilationData = projectState.getCompilationData();
@@ -34,7 +35,10 @@ function App() {
         files: Object.keys(compilationData.files)
       });
 
+      console.log('Sending to backend:', compilationData);
       const response = await axios.post(`${LATEX_API_URL}/compile`, compilationData);
+
+      console.log('Backend response:', response.data);
 
       if (response.data.success && response.data.pdf) {
         console.log('Compilation successful, PDF length:', response.data.pdf.length);
@@ -75,13 +79,18 @@ function App() {
     }
   }, [projectState.getCompilationData, isFirstCompile]);
 
+  // Force compilation when files or active file changes
   useEffect(() => {
     const timer = setTimeout(() => {
       compileLatex();
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [projectState.activeFile, projectState.files, compileLatex]);
+  }, [
+    projectState.activeFile,
+    projectState.version,  // Version tracks file additions/changes
+    compileLatex
+  ]);
 
   const handleCreateNewProject = () => {
     projectState.createProject();
@@ -94,6 +103,16 @@ function App() {
       projectState.addFile(fileName);
       setShowProjectMenu(false);
     }
+  };
+
+  const handleEditorZoom = (editor: monaco.editor.IStandaloneCodeEditor, delta: number) => {
+    const newZoom = Math.max(8, Math.min(72, editorZoom + delta));
+    setEditorZoom(newZoom);
+    editor.updateOptions({ fontSize: newZoom });
+  };
+
+  const handleForceRefresh = () => {
+    compileLatex();
   };
 
   const activeFileContent = projectState.getActiveFileContent();
@@ -142,6 +161,7 @@ function App() {
             mainFile={projectState.mainFile}
             onFileClick={projectState.openFile}
             onMainFileSet={projectState.setMainFile}
+            onAddFile={projectState.addFile}
           />
         </div>
 
@@ -154,6 +174,23 @@ function App() {
             onTabClick={projectState.openFile}
             onTabClose={projectState.closeFile}
           />
+
+          {/* Zoom Indicator */}
+          <div className="zoom-indicator">
+            <span>Zoom: {editorZoom}px</span>
+            <div className="zoom-controls">
+              <button onClick={() => {
+                const newZoom = Math.max(8, editorZoom - 1);
+                setEditorZoom(newZoom);
+              }} title="Zoom Out (Ctrl + Mouse Wheel Down)">−</button>
+              <button onClick={() => setEditorZoom(14)} title="Reset Zoom">100%</button>
+              <button onClick={() => {
+                const newZoom = Math.min(72, editorZoom + 1);
+                setEditorZoom(newZoom);
+              }} title="Zoom In (Ctrl + Mouse Wheel Up)">+</button>
+              <button onClick={handleForceRefresh} title="Force Compile (Debug)">🔄</button>
+            </div>
+          </div>
 
           <div className="editor-container-inner">
             <Editor
@@ -169,7 +206,7 @@ function App() {
               theme="vs-dark"
               options={{
                 minimap: { enabled: false },
-                fontSize: 14,
+                fontSize: editorZoom,
                 lineNumbers: 'on',
                 roundedSelection: false,
                 scrollBeyondLastLine: false,
@@ -363,6 +400,18 @@ function App() {
             onMount={(editor) => {
               console.log('Monaco editor mounted:', editor);
               console.log('Editor language ID:', editor.getModel()?.getLanguageId());
+
+              // Add Ctrl + mouse wheel zoom functionality
+              const editorDomNode = editor.getDomNode();
+              if (editorDomNode) {
+                editorDomNode.addEventListener('wheel', (event: WheelEvent) => {
+                  if (event.ctrlKey) {
+                    event.preventDefault();
+                    const delta = event.deltaY > 0 ? -1 : 1;
+                    handleEditorZoom(editor, delta);
+                  }
+                }, { passive: false });
+              }
             }}
           />
         </div>
@@ -372,11 +421,16 @@ function App() {
       <div className="preview-panel">
         <div className="panel-header">
           <h2>PDF Preview</h2>
-          {projectState.mainFile && (
-            <span className="main-file-indicator">
-              Compiling: {projectState.files.get(projectState.mainFile)?.name}
+          <div className="header-controls">
+            {projectState.mainFile && (
+              <span className="main-file-indicator">
+                Compiling: {projectState.files.get(projectState.mainFile)?.name}
+              </span>
+            )}
+            <span className="file-count" title={`Files: ${Array.from(projectState.files.keys()).join(', ')}`}>
+              {projectState.files.size} files
             </span>
-          )}
+          </div>
         </div>
         <div className="pdf-container">
           {error && (

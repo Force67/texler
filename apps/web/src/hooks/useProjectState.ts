@@ -69,6 +69,7 @@ export const useProjectState = () => {
     mainFile: 'main.tex',
     projectPath: null,
   });
+  const [version, setVersion] = useState(0);
 
   const createProject = useCallback(() => {
     // Create a default multi-file project
@@ -97,6 +98,7 @@ export const useProjectState = () => {
       activeFile: 'main.tex',
       mainFile: 'main.tex',
     }));
+    setVersion(v => v + 1);
   }, []);
 
   const addFile = useCallback((path: string, content: string = '') => {
@@ -113,6 +115,10 @@ export const useProjectState = () => {
       openFiles: [...prev.openFiles, path],
       activeFile: path,
     }));
+    setVersion(v => {
+      console.log('🔢 Version increment (addFile):', v, '->', v + 1);
+      return v + 1;
+    });
   }, []);
 
   const updateFile = useCallback((path: string, content: string) => {
@@ -126,6 +132,7 @@ export const useProjectState = () => {
       }
       return { ...prev, files };
     });
+    setVersion(v => v + 1);
   }, []);
 
   const openFile = useCallback((path: string) => {
@@ -158,6 +165,7 @@ export const useProjectState = () => {
 
   const setMainFile = useCallback((path: string) => {
     setState(prev => ({ ...prev, mainFile: path }));
+    setVersion(v => v + 1);
   }, []);
 
   const getActiveFileContent = useCallback(() => {
@@ -188,6 +196,7 @@ export const useProjectState = () => {
 
   return {
     ...state,
+    version,
     createProject,
     addFile,
     updateFile,

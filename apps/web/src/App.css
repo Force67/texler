@@ -401,6 +401,21 @@ body {
   margin: 0;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.file-count {
+  background: #4EC9B0;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .compile-button {
   padding: 6px 16px;
   background-color: #007bff;
@@ -443,4 +458,241 @@ body {
   height: 100%;
   font-size: 18px;
   color: #6c757d;
+}
+
+/* Add File Button */
+.header-left {
+  flex: 1;
+}
+
+.file-browser-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #444;
+}
+
+.add-file-btn {
+  padding: 6px 10px;
+  background-color: #4EC9B0;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+}
+
+.add-file-btn:hover {
+  background-color: #3ab8a0;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  min-width: 400px;
+  max-width: 500px;
+  width: 90%;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 0 20px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 15px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #999;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.modal-close:hover {
+  background-color: #f0f0f0;
+  color: #333;
+}
+
+.add-file-form {
+  padding: 20px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  color: #333;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.form-input,
+.form-select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus,
+.form-select:focus {
+  outline: none;
+  border-color: #4EC9B0;
+  box-shadow: 0 0 0 2px rgba(78, 201, 176, 0.2);
+}
+
+.form-input.error {
+  border-color: #dc3545;
+}
+
+.error-message {
+  display: block;
+  margin-top: 5px;
+  color: #dc3545;
+  font-size: 12px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.btn-primary {
+  background-color: #4EC9B0;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #3ab8a0;
+}
+
+.btn-primary:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
+}
+
+/* Zoom Controls */
+.zoom-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 15px;
+  background-color: #2d2d30;
+  border-bottom: 1px solid #333;
+  font-size: 12px;
+  color: #ccc;
+}
+
+.zoom-indicator span {
+  color: #888;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 5px;
+}
+
+.zoom-controls button {
+  background: #444;
+  border: 1px solid #555;
+  color: #ccc;
+  width: 28px;
+  height: 22px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.zoom-controls button:hover {
+  background: #555;
+  border-color: #666;
+  color: white;
+}
+
+.zoom-controls button:first-child {
+  font-weight: bold;
+}
+
+.zoom-controls button:last-child {
+  font-weight: bold;
+}
+
+.zoom-controls button:nth-child(4) {
+  background: #4EC9B0;
+  color: white;
+  border-color: #4EC9B0;
+}
+
+.zoom-controls button:nth-child(4):hover {
+  background: #3ab8a0;
+  border-color: #3ab8a0;
 }
