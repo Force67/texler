@@ -38,11 +38,344 @@ body {
   overflow: hidden;
 }
 
+/* Header Controls */
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-left: auto;
+}
+
+.project-dropdown {
+  position: relative;
+}
+
+.project-btn {
+  padding: 6px 12px;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.project-btn:hover {
+  background-color: #5a6268;
+}
+
+.project-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  z-index: 1000;
+  min-width: 150px;
+}
+
+.project-menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.project-menu button:hover {
+  background-color: #f8f9fa;
+}
+
+/* File Browser Panel */
+.file-browser-panel {
+  width: 250px;
+  background: #2c3136;
+  border-right: 1px solid #444;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-browser {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.file-browser-header {
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #444;
+}
+
+.file-browser-header h3 {
+  color: white;
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+.main-file-info {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #888;
+}
+
+.main-file-label {
+  color: #666;
+}
+
+.main-file-name {
+  color: #4EC9B0;
+  font-weight: bold;
+}
+
+.file-tree {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.file-group {
+  margin-bottom: 15px;
+}
+
+.directory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  color: white;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.directory-icon {
+  color: #FFD700;
+}
+
+.directory-name {
+  color: white;
+}
+
+.sub-files {
+  margin-left: 20px;
+}
+
+.root-files {
+  /* No extra margin for root level files */
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: #ccc;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.file-item:hover {
+  background-color: #3c4146;
+}
+
+.file-item.active {
+  background-color: #4EC9B0;
+  color: white;
+}
+
+.file-item.main-file {
+  border-left: 3px solid #FFD700;
+}
+
+.file-icon {
+  color: #888;
+}
+
+.file-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modified-indicator {
+  color: #ff6b6b;
+  font-size: 12px;
+}
+
+.main-file-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  opacity: 0.7;
+  transition: all 0.2s;
+}
+
+.main-file-btn:hover {
+  opacity: 1;
+  background-color: #444;
+}
+
+.main-file-btn.active {
+  opacity: 1;
+  color: #FFD700;
+}
+
+.file-browser-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #444;
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 11px;
+  color: #666;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* File Tabs */
+.file-tabs {
+  background: #1e1e1e;
+  border-bottom: 1px solid #333;
+  min-height: 40px;
+}
+
+.tabs-container {
+  display: flex;
+  overflow-x: auto;
+  height: 40px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  min-width: 120px;
+  max-width: 200px;
+  background: #2d2d30;
+  border-right: 1px solid #333;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.2s;
+}
+
+.tab:hover {
+  background: #3a3a3d;
+}
+
+.tab.active {
+  background: #4EC9B0;
+  color: white;
+}
+
+.tab-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modified-dot {
+  color: #ff6b6b;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.tab-close {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 3px;
+  margin-left: 2px;
+  opacity: 0;
+  transition: all 0.2s;
+}
+
+.tab:hover .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgba(255,255,255,0.1);
+  color: white;
+}
+
+/* Updated Editor Panel */
 .editor-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #ddd;
+  min-width: 0; /* Important for flexbox overflow */
+}
+
+.editor-container-inner {
+  flex: 1;
+  position: relative;
+}
+
+/* Updated Preview Panel */
+.preview-panel .panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.main-file-indicator {
+  font-size: 12px;
+  color: #888;
+  background: #f8f9fa;
+  padding: 4px 8px;
+  border-radius: 3px;
+}
+
+.error-display {
+  padding: 20px;
+  background-color: #fee;
+  border-radius: 4px;
+  margin: 10px;
+  color: #721c24;
+  font-family: monospace;
+}
+
+.pdf-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 4px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .preview-panel {

@@ -2,87 +2,39 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import axios from 'axios';
 import * as monaco from 'monaco-editor';
+import { useProjectState } from './hooks/useProjectState';
+import { FileBrowser } from './components/FileBrowser';
+import { FileTabs } from './components/FileTabs';
 import './App.css';
 
 const LATEX_API_URL = 'http://localhost:8081';
 
-const defaultLatex = `\\documentclass{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage{amsmath}
-\\usepackage{graphicx}
-\\usepackage{geometry}
-\\geometry{a4paper, margin=1in}
-
-\\title{My LaTeX Document}
-\\author{Your Name}
-\\date{\\today}
-
-\\begin{document}
-
-\\maketitle
-
-\\section{Introduction}
-
-Welcome to Texler! This is a collaborative LaTeX editor with live preview.
-
-\\section{Mathematics}
-
-Here's some inline math: \\(E = mc^2\\)
-
-And here's a displayed equation:
-\\begin{equation}
-    \\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-\\end{equation}
-
-\\section{Lists}
-
-\\begin{itemize}
-    \\item First item
-    \\item Second item
-    \\begin{itemize}
-        \\item Nested item 1
-        \\item Nested item 2
-    \\end{itemize}
-    \\item Third item
-\\end{itemize}
-
-\\section{Tables}
-
-\\begin{tabular}{|c|c|c|}
-\\hline
-\\textbf{Name} & \\textbf{Age} & \\textbf{City} \\\\
-\\hline
-Alice & 25 & New York \\\\
-Bob & 30 & Los Angeles \\\\
-Charlie & 35 & Chicago \\\\
-\\hline
-\\end{tabular}
-
-\\section{Conclusion}
-
-Start editing your LaTeX code on the left to see the compiled PDF on the right!
-
-\\end{document}`;
-
 function App() {
-  const [latexCode, setLatexCode] = useState(defaultLatex);
+  const projectState = useProjectState();
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFirstCompile, setIsFirstCompile] = useState(true);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
 
   const compileLatex = useCallback(async () => {
+    const compilationData = projectState.getCompilationData();
+    if (!compilationData) {
+      setError('No files to compile or main file not set');
+      return;
+    }
+
     setCompiling(true);
     setError(null);
 
     try {
-      console.log('Compiling LaTeX code:', latexCode.substring(0, 100) + '...');
-      const response = await axios.post(`${LATEX_API_URL}/compile`, {
-        files: {
-          'document.tex': latexCode
-        },
-        mainFile: 'document.tex'
+      console.log('Compiling multi-file project:', {
+        fileCount: Object.keys(compilationData.files).length,
+        mainFile: compilationData.mainFile,
+        files: Object.keys(compilationData.files)
       });
+
+      const response = await axios.post(`${LATEX_API_URL}/compile`, compilationData);
 
       if (response.data.success && response.data.pdf) {
         console.log('Compilation successful, PDF length:', response.data.pdf.length);
@@ -121,7 +73,7 @@ function App() {
     } finally {
       setCompiling(false);
     }
-  }, [latexCode, isFirstCompile]);
+  }, [projectState.getCompilationData, isFirstCompile]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -129,42 +81,102 @@ function App() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [latexCode, compileLatex]);
+  }, [projectState.activeFile, projectState.files, compileLatex]);
+
+  const handleCreateNewProject = () => {
+    projectState.createProject();
+    setShowProjectMenu(false);
+  };
+
+  const handleAddFile = () => {
+    const fileName = prompt('Enter file name (e.g., newfile.tex or sections/newfile.tex):');
+    if (fileName) {
+      projectState.addFile(fileName);
+      setShowProjectMenu(false);
+    }
+  };
+
+  const activeFileContent = projectState.getActiveFileContent();
 
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Texler - Collaborative LaTeX Editor</h1>
+        <h1>Texler - Multi-File LaTeX Editor</h1>
+        <div className="header-controls">
+          <div className="project-dropdown">
+            <button
+              className="project-btn"
+              onClick={() => setShowProjectMenu(!showProjectMenu)}
+            >
+              📁 Project
+            </button>
+            {showProjectMenu && (
+              <div className="project-menu">
+                <button onClick={handleCreateNewProject}>
+                  📄 New Project
+                </button>
+                <button onClick={handleAddFile}>
+                  ➕ Add File
+                </button>
+                <button onClick={() => setShowProjectMenu(false)}>
+                  ❌ Cancel
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            className="compile-button"
+            onClick={compileLatex}
+            disabled={compiling}
+          >
+            {compiling ? 'Compiling...' : 'Compile'}
+          </button>
+        </div>
       </header>
       <div className="editor-container">
+        {/* File Browser Sidebar */}
+        <div className="file-browser-panel">
+          <FileBrowser
+            files={projectState.files}
+            activeFile={projectState.activeFile}
+            mainFile={projectState.mainFile}
+            onFileClick={projectState.openFile}
+            onMainFileSet={projectState.setMainFile}
+          />
+        </div>
+
         <div className="editor-panel">
-          <div className="panel-header">
-            <h2>LaTeX Editor</h2>
-            <button
-              className="compile-button"
-              onClick={compileLatex}
-              disabled={compiling}
-            >
-              {compiling ? 'Compiling...' : 'Compile'}
-            </button>
-          </div>
-          <Editor
-            height="calc(100vh - 120px)"
-            language="latex"
-            defaultValue={latexCode}
-            value={latexCode}
-            onChange={(value) => setLatexCode(value || '')}
-            theme="vs-dark"
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: 'on',
-              roundedSelection: false,
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              wordWrap: 'on',
-            }}
-            beforeMount={(monaco) => {
+          {/* File Tabs */}
+          <FileTabs
+            openFiles={projectState.openFiles}
+            activeFile={projectState.activeFile}
+            files={projectState.files}
+            onTabClick={projectState.openFile}
+            onTabClose={projectState.closeFile}
+          />
+
+          <div className="editor-container-inner">
+            <Editor
+              height="100%"
+              language="latex"
+              defaultValue=""
+              value={activeFileContent}
+              onChange={(value) => {
+                if (projectState.activeFile) {
+                  projectState.updateFile(projectState.activeFile, value || '');
+                }
+              }}
+              theme="vs-dark"
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                lineNumbers: 'on',
+                roundedSelection: false,
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                wordWrap: 'on',
+              }}
+              beforeMount={(monaco) => {
               console.log('Monaco beforeMount:', monaco);
 
               // Define LaTeX language with proper syntax highlighting
@@ -354,42 +366,37 @@ function App() {
             }}
           />
         </div>
-        <div className="preview-panel">
-          <div className="panel-header">
-            <h2>PDF Preview</h2>
-          </div>
-          <div className="pdf-container">
-            {error && (
-              <div style={{
-                padding: '20px',
-                backgroundColor: '#fee',
-                borderRadius: '4px',
-                margin: '10px',
-                color: '#721c24',
-                fontFamily: 'monospace'
-              }}>
-                <strong>Compilation Error:</strong><br />
-                {error}
-              </div>
-            )}
-            {pdfUrl && !error ? (
-              <iframe
-                src={pdfUrl}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  border: 'none',
-                  borderRadius: '4px',
-                  boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)'
-                }}
-                title="PDF Preview"
-              />
-            ) : !error ? (
-              <div className="loading">
-                {compiling ? 'Compiling LaTeX...' : 'PDF will appear here'}
-              </div>
-            ) : null}
-          </div>
+      </div>
+
+      {/* PDF Preview Panel */}
+      <div className="preview-panel">
+        <div className="panel-header">
+          <h2>PDF Preview</h2>
+          {projectState.mainFile && (
+            <span className="main-file-indicator">
+              Compiling: {projectState.files.get(projectState.mainFile)?.name}
+            </span>
+          )}
+        </div>
+        <div className="pdf-container">
+          {error && (
+            <div className="error-display">
+              <strong>Compilation Error:</strong>{<br />}
+              {error}
+            </div>
+          )}
+          {pdfUrl && !error ? (
+            <iframe
+              src={pdfUrl}
+              className="pdf-iframe"
+              title="PDF Preview"
+            />
+          ) : !error ? (
+            <div className="loading">
+              {compiling ? 'Compiling LaTeX...' : 'PDF will appear here'}
+            </div>
+          ) : null}
+        </div>
         </div>
       </div>
     </div>
