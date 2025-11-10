@@ -19,8 +19,8 @@ nix develop
 ```
 
 This will:
-- Install Node.js 18 and npm
-- Set up the development environment
+- Install Node.js 20 and npm
+- Set up the Vite development environment
 - Install web app dependencies automatically
 - Provide helpful development tools
 
@@ -31,13 +31,13 @@ This will:
 # Terminal 1: Start LaTeX compilation service
 docker-compose up
 
-# Terminal 2: Start React development server (in nix develop shell)
-npm start
+# Terminal 2: Start Vite development server (in nix develop shell)
+npm run dev
 ```
 
 #### Option B: Use Nix apps directly
 ```bash
-# Start React development server
+# Start Vite development server
 nix run .#dev
 
 # Or build for production
@@ -55,10 +55,12 @@ nix run .#build
 Inside the `nix develop` shell:
 
 ```bash
-# React development
-npm start          # Start development server
-npm run build      # Build for production
-npm test           # Run tests
+# Modern Vite development
+npm run dev          # Start Vite development server
+npm run build        # Build for production (TypeScript + Vite)
+npm run preview      # Preview production build
+npm test             # Run tests with Vitest
+npm run lint         # Lint TypeScript/React code
 
 # Nix-specific commands
 node2nix -i apps/web/package.json -l apps/web/package-lock.json -c
