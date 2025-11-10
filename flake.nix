@@ -66,12 +66,16 @@
             if [[ ! -f "package.json" ]]; then
               if [[ -f "../apps/web/package.json" ]]; then
                 cd ../apps/web
+                echo "📂 Navigated to apps/web directory"
               elif [[ -f "apps/web/package.json" ]]; then
                 cd apps/web
+                echo "📂 Navigated to apps/web directory"
               else
                 echo "⚠️  Could not find apps/web/package.json"
                 echo "Please navigate to the apps/web directory manually."
               fi
+            else
+              echo "📍 Already in apps/web directory"
             fi
 
             # Install dependencies if node_modules doesn't exist or lock file is out of sync

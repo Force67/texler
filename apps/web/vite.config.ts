@@ -33,6 +33,7 @@ export default defineConfig({
   ],
   server: {
     port: 3000,
+    host: true, // Ensure accessible from network
     proxy: {
       '/api': {
         target: 'http://localhost:8081',
@@ -49,5 +50,9 @@ export default defineConfig({
     alias: {
       '@': '/src'
     }
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom'],
+    force: true // Ensure Vite handles React dependencies properly
   }
 })
