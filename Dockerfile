@@ -14,8 +14,8 @@ RUN python3 -m pip install --no-cache-dir flask python-dotenv watchdog
 # Set working directory
 WORKDIR /usr/src/app
 
-# Create simple main.py for now (we'll update it later)
-RUN echo 'from flask import Flask, jsonify\napp = Flask(__name__)\n@app.route("/health")\ndef health():\n    return jsonify({"status": "ok"})\n@app.route("/")\ndef home():\n    return "LaTeX Service - Health check: /health"\nif __name__ == "__main__":\n    app.run(host="0.0.0.0", port=5000)' > main.py
+# Create simple health check service for testing
+RUN echo '#!/usr/bin/env python3\nfrom flask import Flask, jsonify\napp = Flask(__name__)\n@app.route("/health")\ndef health():\n    return jsonify({"status": "ok", "service": "simple-test"})\n@app.route("/")\ndef home():\n    return """\nTexler LaTeX Editor - Simple Test Service\n\nUse docker-compose up for the full LaTeX compilation service:\n  - Full LaTeX compilation API on port 8081\n  - PDF generation and error handling\n  - CORS support\n  \nHealth check: /health\n"""\nif __name__ == "__main__":\n    app.run(host="0.0.0.0", port=5000, debug=True)' > main.py
 
 # Expose port
 EXPOSE 5000
