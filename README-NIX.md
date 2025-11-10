@@ -46,7 +46,7 @@ nix run .#build
 
 ### 3. Access the Application
 
-- **Web Frontend**: http://localhost:3000
+- **Web Frontend**: http://localhost:5173 (override with `VITE_DEV_SERVER_PORT` or `PORT`)
 - **LaTeX API**: http://localhost:8081
 - **LaTeX Health Check**: http://localhost:8081/health
 

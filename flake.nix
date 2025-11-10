@@ -107,16 +107,11 @@
 
           installPhase = ''
             mkdir -p $out
-            cp -r build/* $out/
+            cp -r dist/* $out/
           '';
 
           # Don't strip in build phase (causes issues with some JS files)
           dontStrip = true;
-
-          # Cache node_modules for faster builds
-          outputHashMode = "recursive";
-          outputHashAlgo = "sha256";
-          outputHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
         };
 
         # Development server script

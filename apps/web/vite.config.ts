@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const devServerPort = Number(process.env.VITE_DEV_SERVER_PORT ?? process.env.PORT ?? 5173)
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
@@ -32,7 +34,8 @@ export default defineConfig({
     })
   ],
   server: {
-    port: 3000,
+    port: devServerPort,
+    strictPort: true,
     host: true, // Ensure accessible from network
     proxy: {
       '/api': {
