@@ -52,20 +52,29 @@
             echo "  npm start         - Start React development server"
             echo "  npm run build     - Build for production"
             echo "  npm test          - Run tests"
-            echo "  node2nix -i apps/web/package.json -l apps/web/package-lock.json -c"
+            echo "  node2nix -i package.json -l package-lock.json -c"
             echo "                    - Generate Nix expressions from npm"
             echo ""
             echo "🐳 Docker commands (if needed):"
             echo "  docker-compose up - Start LaTeX compilation service"
             echo ""
-            echo "📂 Working directory: apps/web"
-            echo ""
-            cd apps/web
 
-            # Install dependencies if node_modules doesn't exist
-            if [ ! -d "node_modules" ]; then
-              echo "📥 Installing npm dependencies..."
-              npm ci
+            # Navigate to web app directory if not already there
+            if [[ ! -f "package.json" ]]; then
+              if [[ -f "../apps/web/package.json" ]]; then
+                cd ../apps/web
+              elif [[ -f "apps/web/package.json" ]]; then
+                cd apps/web
+              else
+                echo "⚠️  Could not find apps/web/package.json"
+                echo "Please navigate to the apps/web directory manually."
+              fi
+            fi
+
+            # Install dependencies if node_modules doesn't exist or lock file is out of sync
+            if [ ! -d "node_modules" ] || ! npm ls --depth=0 >/dev/null 2>&1; then
+              echo "📥 Installing/updating npm dependencies..."
+              npm install
             fi
           '';
         };
