@@ -1,0 +1,58 @@
+\section{Methods}
+
+This section describes the methodology used in this demonstration.
+
+\subsection{File Organization}
+
+The project is organized as follows:
+
+\begin{description}
+\item[main.tex] The main document file that includes all sections
+\item[sections/] Directory containing individual section files
+\item[introduction.tex] Introduction and background
+\item[methods.tex] This methods section
+\item[results.tex] Results section
+\item[conclusion.tex] Conclusion section
+\end{description}
+
+\subsection{LaTeX Commands Used}
+
+We use several important LaTeX commands for multi-file projects:
+
+\begin{itemize}
+\item \texttt{\textbackslash include\{filename\}} - Includes a file and starts on a new page
+\item \texttt{\textbackslash input\{filename\}} - Includes a file without page break
+\item \texttt{\textbackslash tableofcontents} - Generates table of contents
+\end{itemize}
+
+\subsection{Compilation Process}
+
+The compilation process for multi-file projects:
+
+\begin{enumerate}
+\item LaTeX reads the main file
+\item When encountering \texttt{\textbackslash include}, it processes the included file
+\item All cross-references and citations are resolved
+\item Table of contents is generated
+\item Final PDF is produced
+\end{enumerate}
+
+\subsection{Tables and Figures}
+
+Here's a sample table to test formatting:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|r|}
+\hline
+\textbf{Feature} & \textbf{Single File} & \textbf{Multi File} \\
+\hline
+Organization & Basic & Excellent \\
+Compilation Speed & Fast & Slower \\
+Maintainability & Poor & Good \\
+Collaboration & Difficult & Easy \\
+\hline
+\end{tabular}
+\caption{Comparison of single-file vs multi-file LaTeX projects}
+\label{tab:comparison}
+\end{table}

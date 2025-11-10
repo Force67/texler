@@ -67,3 +67,4 @@ ehthumbs.db
 
 # Docker
 .dockerignore
+*.json

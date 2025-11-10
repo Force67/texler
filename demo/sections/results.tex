@@ -1,0 +1,65 @@
+\section{Results}
+
+This section presents the results of our multi-file LaTeX compilation test.
+
+\subsection{File Structure Analysis}
+
+The demo project successfully demonstrates the following multi-file capabilities:
+
+\begin{itemize}
+\item \textbf{File Inclusion}: Multiple \texttt{.tex} files are properly combined
+\item \textbf{Cross-Referencing}: References work across file boundaries
+\item \textbf{Table of Contents}: Automatically generated from all sections
+\item \textbf{Page Numbering}: Continuous across all included files
+\end{itemize}
+
+\subsection{Compilation Success}
+
+The LaTeX compilation should succeed if all files are present and properly structured. Refer to Table~\ref{tab:comparison} for a comparison of different approaches.
+
+\subsection{Mathematical Results}
+
+Additional mathematical expressions to verify compilation:
+
+\begin{theorem}[Pythagorean Theorem]
+For a right triangle with legs $a$ and $b$, and hypotenuse $c$:
+\begin{equation}
+a^2 + b^2 = c^2
+\end{equation}
+\end{theorem}
+
+\begin{proof}
+Consider the area of squares constructed on each side... (proof omitted for brevity)
+\end{proof}
+
+\subsection{List Examples}
+
+Different types of lists to test formatting:
+
+\begin{enumerate}
+\item First level item
+  \begin{enumerate}
+  \item Second level item
+    \begin{enumerate}
+    \item Third level item
+    \end{enumerate}
+  \end{enumerate}
+\item Another first level item
+\end{enumerate}
+
+\subsection{Code and Algorithms}
+
+Here's a sample algorithm:
+
+\begin{verbatim}
+function compileLatex(files) {
+  for (let file of files) {
+    if (file.includes('\include{')) {
+      processIncludedFiles(file);
+    }
+  }
+  generatePDF();
+}
+\end{verbatim}
+
+This demonstrates that verbatim environments work correctly across file boundaries.
