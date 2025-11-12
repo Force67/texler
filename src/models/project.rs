@@ -6,6 +6,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::{CompilationStatus, Entity, LatexEngine, UserRole};
+use super::user::UserProfile;
 
 /// Project model
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -73,8 +74,8 @@ pub struct UpdateProject {
 pub struct ProjectWithDetails {
     #[serde(flatten)]
     pub project: Project,
-    pub owner: super::UserProfile,
-    pub collaborators: Vec<super::UserProfile>,
+    pub owner: UserProfile,
+    pub collaborators: Vec<UserProfile>,
     pub file_count: i64,
     pub word_count: i64,
     pub tag_count: i64,
@@ -85,8 +86,8 @@ pub struct ProjectWithDetails {
 pub struct ProjectSearchResult {
     #[serde(flatten)]
     pub project: Project,
-    pub owner: super::UserProfile,
-    pub collaborators: Vec<super::UserProfile>,
+    pub owner: UserProfile,
+    pub collaborators: Vec<UserProfile>,
     pub relevance_score: f64,
 }
 
@@ -114,7 +115,7 @@ pub struct ProjectTag {
 }
 
 /// Project statistics
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ProjectStats {
     pub project_id: Uuid,
     pub total_files: i64,
@@ -147,25 +148,24 @@ impl Project {
         owner_id: Uuid,
         create_project: CreateProject,
     ) -> Result<Self, crate::error::AppError> {
-        let project = sqlx::query_as!(
-            Project,
+        let project = sqlx::query_as::<_, Project>(
             r#"
             INSERT INTO projects (
                 name, description, owner_id, is_public, main_file_path,
                 latex_engine, output_format, custom_args, bibliography_path
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
-            "#,
-            create_project.name,
-            create_project.description,
-            owner_id,
-            create_project.is_public.unwrap_or(false),
-            create_project.main_file_path.unwrap_or_else(|| "main.tex".to_string()),
-            create_project.latex_engine.unwrap_or_default(),
-            create_project.output_format.unwrap_or_else(|| "pdf".to_string()),
-            create_project.custom_args.unwrap_or_default(),
-            create_project.bibliography_path
+            "#
         )
+        .bind(create_project.name)
+        .bind(create_project.description)
+        .bind(owner_id)
+        .bind(create_project.is_public.unwrap_or(false))
+        .bind(create_project.main_file_path.unwrap_or_else(|| "main.tex".to_string()))
+        .bind(create_project.latex_engine.unwrap_or_default())
+        .bind(create_project.output_format.unwrap_or_else(|| "pdf".to_string()))
+        .bind(create_project.custom_args.unwrap_or_default())
+        .bind(create_project.bibliography_path)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -173,14 +173,14 @@ impl Project {
         // Create tags if provided
         if let Some(tags) = create_project.tags {
             for tag_name in tags {
-                sqlx::query!(
+                sqlx::query(
                     r#"
                     INSERT INTO project_tags (project_id, name)
                     VALUES ($1, $2)
-                    "#,
-                    project.id,
-                    tag_name
+                    "#
                 )
+                .bind(project.id)
+                .bind(tag_name)
                 .execute(db)
                 .await
                 .map_err(crate::error::AppError::Database)?;
@@ -208,8 +208,7 @@ impl Project {
         project_id: Uuid,
         user_id: Uuid,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let project = sqlx::query_as!(
-            Project,
+        let project = sqlx::query_as::<_, Project>(
             r#"
             SELECT p.* FROM projects p
             WHERE p.id = $1 AND (
@@ -220,10 +219,10 @@ impl Project {
                 ) OR
                 p.is_public = true
             )
-            "#,
-            project_id,
-            user_id
+            "#
         )
+        .bind(project_id)
+        .bind(user_id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -237,8 +236,7 @@ impl Project {
         user_id: Uuid,
         params: &super::PaginationParams,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let projects = sqlx::query_as!(
-            Project,
+        let projects = sqlx::query_as::<_, Project>(
             r#"
             SELECT DISTINCT p.* FROM projects p
             WHERE (
@@ -251,11 +249,11 @@ impl Project {
             )
             ORDER BY p.updated_at DESC
             LIMIT $2 OFFSET $3
-            "#,
-            user_id,
-            params.limit() as i64,
-            params.offset() as i64
+            "#
         )
+        .bind(user_id)
+        .bind(params.limit() as i64)
+        .bind(params.offset() as i64)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -270,8 +268,7 @@ impl Project {
         update_project: UpdateProject,
         user_id: Uuid,
     ) -> Result<Self, crate::error::AppError> {
-        let project = sqlx::query_as!(
-            Project,
+        let project = sqlx::query_as::<_, Project>(
             r#"
             UPDATE projects SET
                 name = COALESCE($1, name),
@@ -285,18 +282,18 @@ impl Project {
                 updated_at = NOW()
             WHERE id = $9 AND owner_id = $10
             RETURNING *
-            "#,
-            update_project.name,
-            update_project.description,
-            update_project.is_public,
-            update_project.main_file_path,
-            update_project.latex_engine,
-            update_project.output_format,
-            update_project.custom_args,
-            update_project.bibliography_path,
-            self.id,
-            user_id
+            "#
         )
+        .bind(update_project.name)
+        .bind(update_project.description)
+        .bind(update_project.is_public)
+        .bind(update_project.main_file_path)
+        .bind(update_project.latex_engine)
+        .bind(update_project.output_format)
+        .bind(update_project.custom_args)
+        .bind(update_project.bibliography_path)
+        .bind(self.id)
+        .bind(user_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -310,11 +307,11 @@ impl Project {
         db: &sqlx::PgPool,
         user_id: Uuid,
     ) -> Result<(), crate::error::AppError> {
-        let rows_affected = sqlx::query!(
-            "DELETE FROM projects WHERE id = $1 AND owner_id = $2",
-            self.id,
-            user_id
+        let rows_affected = sqlx::query(
+            "DELETE FROM projects WHERE id = $1 AND owner_id = $2"
         )
+        .bind(self.id)
+        .bind(user_id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -334,7 +331,7 @@ impl Project {
         project_id: Uuid,
         user_id: Uuid,
     ) -> Result<bool, crate::error::AppError> {
-        let count = sqlx::query_scalar!(
+        let count = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*) FROM projects p
             WHERE p.id = $1 AND (
@@ -345,15 +342,15 @@ impl Project {
                 ) OR
                 p.is_public = true
             )
-            "#,
-            project_id,
-            user_id
+            "#
         )
+        .bind(project_id)
+        .bind(user_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
-        Ok(count.unwrap_or(0) > 0)
+        Ok(count > 0)
     }
 
     /// Check if user is owner
@@ -362,16 +359,16 @@ impl Project {
         project_id: Uuid,
         user_id: Uuid,
     ) -> Result<bool, crate::error::AppError> {
-        let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM projects WHERE id = $1 AND owner_id = $2",
-            project_id,
-            user_id
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM projects WHERE id = $1 AND owner_id = $2"
         )
+        .bind(project_id)
+        .bind(user_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
-        Ok(count.unwrap_or(0) > 0)
+        Ok(count > 0)
     }
 
     /// Get project with full details
@@ -388,23 +385,21 @@ impl Project {
             })?;
 
         // Get owner info
-        let owner = sqlx::query_as!(
-            super::UserProfile,
+        let owner = sqlx::query_as::<_, UserProfile>(
             r#"
             SELECT id, username, email, display_name, avatar_url,
                    is_active, email_verified, last_login_at, created_at
             FROM users
             WHERE id = $1
-            "#,
-            project.owner_id
+            "#
         )
+        .bind(project.owner_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Get collaborators
-        let collaborators = sqlx::query_as!(
-            super::UserProfile,
+        let collaborators = sqlx::query_as::<_, UserProfile>(
             r#"
             SELECT u.id, u.username, u.email, u.display_name, u.avatar_url,
                    u.is_active, u.email_verified, u.last_login_at, u.created_at
@@ -412,9 +407,9 @@ impl Project {
             JOIN project_collaborators pc ON u.id = pc.user_id
             WHERE pc.project_id = $1
             ORDER BY pc.created_at
-            "#,
-            project_id
+            "#
         )
+        .bind(project_id)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -434,18 +429,19 @@ impl Project {
 
     /// Update compilation status
     pub async fn update_compilation_status(
+        &self,
         db: &sqlx::PgPool,
         status: CompilationStatus,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE projects
             SET compilation_status = $1, last_compilation_at = NOW()
             WHERE id = $2
-            "#,
-            status as CompilationStatus,
-            self.id
+            "#
         )
+        .bind(status as CompilationStatus)
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -463,18 +459,17 @@ impl ProjectCollaborator {
         role: UserRole,
         invited_by: Uuid,
     ) -> Result<Self, crate::error::AppError> {
-        let collaborator = sqlx::query_as!(
-            ProjectCollaborator,
+        let collaborator = sqlx::query_as::<_, ProjectCollaborator>(
             r#"
             INSERT INTO project_collaborators (project_id, user_id, role, invited_by)
             VALUES ($1, $2, $3, $4)
             RETURNING *
-            "#,
-            project_id,
-            user_id,
-            role as UserRole,
-            invited_by
+            "#
         )
+        .bind(project_id)
+        .bind(user_id)
+        .bind(role as UserRole)
+        .bind(invited_by)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -488,11 +483,11 @@ impl ProjectCollaborator {
         project_id: Uuid,
         user_id: Uuid,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "DELETE FROM project_collaborators WHERE project_id = $1 AND user_id = $2",
-            project_id,
-            user_id
+        sqlx::query(
+            "DELETE FROM project_collaborators WHERE project_id = $1 AND user_id = $2"
         )
+        .bind(project_id)
+        .bind(user_id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -505,11 +500,10 @@ impl ProjectCollaborator {
         db: &sqlx::PgPool,
         project_id: Uuid,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let collaborators = sqlx::query_as!(
-            ProjectCollaborator,
-            "SELECT * FROM project_collaborators WHERE project_id = $1 ORDER BY created_at",
-            project_id
+        let collaborators = sqlx::query_as::<_, ProjectCollaborator>(
+            "SELECT * FROM project_collaborators WHERE project_id = $1 ORDER BY created_at"
         )
+        .bind(project_id)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -524,8 +518,7 @@ impl ProjectStats {
         db: &sqlx::PgPool,
         project_id: Uuid,
     ) -> Result<Self, crate::error::AppError> {
-        let stats = sqlx::query_as!(
-            ProjectStats,
+        let stats = sqlx::query_as::<_, ProjectStats>(
             r#"
             WITH file_stats AS (
                 SELECT
@@ -559,9 +552,9 @@ impl ProjectStats {
                 FROM project_collaborators
                 GROUP BY project_id
             ) c ON c.project_id = $1
-            "#,
-            project_id
+            "#
         )
+        .bind(project_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -581,19 +574,19 @@ impl ProjectActivity {
         entity_id: Option<Uuid>,
         details: Option<String>,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO project_activity (
                 project_id, user_id, action, entity_type, entity_id, details
             ) VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-            project_id,
-            user_id,
-            action,
-            entity_type,
-            entity_id,
-            details
+            "#
         )
+        .bind(project_id)
+        .bind(user_id)
+        .bind(action)
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(details)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -607,17 +600,16 @@ impl ProjectActivity {
         project_id: Uuid,
         limit: u32,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let activities = sqlx::query_as!(
-            ProjectActivity,
+        let activities = sqlx::query_as::<_, ProjectActivity>(
             r#"
             SELECT * FROM project_activity
             WHERE project_id = $1
             ORDER BY created_at DESC
             LIMIT $2
-            "#,
-            project_id,
-            limit as i64
+            "#
         )
+        .bind(project_id)
+        .bind(limit as i64)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;

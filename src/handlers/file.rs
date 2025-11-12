@@ -86,7 +86,7 @@ pub async fn list_files(
     }
 
     // Get total count for pagination
-    let total_count = sqlx::query_scalar!(
+    let total_count = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT COUNT(*) FROM files f
         JOIN projects p ON f.project_id = p.id
@@ -98,10 +98,10 @@ pub async fn list_files(
             ) OR
             p.is_public = true
         )
-        "#,
-        project_id,
-        auth_user.user_id
+        "#
     )
+    .bind(project_id)
+    .bind(auth_user.user_id)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;

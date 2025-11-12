@@ -5,9 +5,9 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::UserRole;
+use crate::models::UserRole;
 use crate::error::AppError;
-use super::user::User;
+use crate::models::user::User;
 
 /// JWT token claims
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +19,7 @@ pub struct Claims {
     pub iat: i64, // Issued at
     pub exp: i64, // Expiration
     pub iss: String, // Issuer
+    pub jti: String, // JWT ID for blacklisting
 }
 
 impl Claims {
@@ -33,6 +34,7 @@ impl Claims {
             iat: now.timestamp(),
             exp: now.timestamp() + expiration,
             iss: issuer,
+            jti: PasswordUtils::generate_reset_token(), // Use as unique JWT ID
         }
     }
 
@@ -76,8 +78,8 @@ impl JwtService {
 
         let mut validation = Validation::default();
         validation.validate_exp = true;
-        validation.validate_iat = true;
-        validation.iss = Some(issuer.clone());
+        // Note: validate_iat is not available in current version
+        validation.set_issuer(&[&issuer]);
 
         Ok(Self {
             encoding_key: EncodingKey::from_secret(secret.as_ref()),
@@ -113,12 +115,30 @@ impl JwtService {
         })
     }
 
-    /// Verify and decode token
+    /// Verify and decode token (without database check - use verify_token_with_db for full validation)
     pub fn verify_token(&self, token: &str) -> Result<Claims, AppError> {
         let token_data = decode::<Claims>(token, &self.decoding_key, &self.validation)
             .map_err(|e| AppError::Authentication(format!("Invalid token: {}", e)))?;
 
         Ok(token_data.claims)
+    }
+
+    /// Verify and decode token with blacklist check
+    pub async fn verify_token_with_db(&self, token: &str, db: &sqlx::PgPool) -> Result<Claims, AppError> {
+        let claims = self.verify_token(token)?;
+
+        // Check if token is blacklisted
+        use crate::models::token_blacklist::TokenBlacklistService;
+        use uuid::Uuid;
+
+        let user_id = Uuid::parse_str(&claims.sub)
+            .map_err(|_| AppError::Authentication("Invalid user ID in token".to_string()))?;
+
+        if TokenBlacklistService::should_reject_token(db, &claims.jti, user_id).await? {
+            return Err(AppError::Authentication("Token has been revoked".to_string()));
+        }
+
+        Ok(claims)
     }
 
     /// Refresh access token using refresh token
@@ -199,13 +219,13 @@ impl PasswordUtils {
     /// Validate password strength
     pub fn validate_password_strength(password: &str) -> Result<(), AppError> {
         if password.len() < 8 {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Password must be at least 8 characters long".to_string(),
             ));
         }
 
         if password.len() > 128 {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Password must be less than 128 characters long".to_string(),
             ));
         }
@@ -216,25 +236,25 @@ impl PasswordUtils {
         let has_special = password.chars().any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c));
 
         if !has_uppercase {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Password must contain at least one uppercase letter".to_string(),
             ));
         }
 
         if !has_lowercase {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Password must contain at least one lowercase letter".to_string(),
             ));
         }
 
         if !has_digit {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Password must contain at least one digit".to_string(),
             ));
         }
 
         if !has_special {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Password must contain at least one special character".to_string(),
             ));
         }
@@ -244,7 +264,7 @@ impl PasswordUtils {
 }
 
 /// Authentication context for requests
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthContext {
     pub user_id: Uuid,
     pub username: String,
@@ -348,7 +368,6 @@ impl EmailVerificationRequest {
 }
 
 /// Authentication middleware state
-#[derive(Debug, Clone)]
 pub struct AuthState {
     pub jwt_service: JwtService,
 }

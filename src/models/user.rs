@@ -5,7 +5,29 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use super::{Entity, UserRole};
+use crate::models::{Entity, UserRole};
+
+/// Authentication method
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "text", rename_all = "lowercase")]
+pub enum AuthMethod {
+    Password,
+    Oidc,
+}
+
+/// OIDC user information from provider
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcUserInfo {
+    pub sub: String,           // Subject (unique identifier)
+    pub email: String,         // User email
+    pub email_verified: bool,  // Email verification status
+    pub name: Option<String>,  // Full name
+    pub given_name: Option<String>,
+    pub family_name: Option<String>,
+    pub picture: Option<String>, // Profile picture URL
+    pub locale: Option<String>,
+    pub preferred_username: Option<String>,
+}
 
 /// User model
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -13,14 +35,38 @@ pub struct User {
     pub id: Uuid,
     pub username: String,
     pub email: String,
-    pub password_hash: String,
+    pub password_hash: Option<String>, // Optional for OIDC users
     pub display_name: String,
     pub avatar_url: Option<String>,
     pub is_active: bool,
     pub email_verified: bool,
+    pub auth_method: AuthMethod,
+    pub oidc_provider: Option<String>,
+    pub oidc_provider_id: Option<String>,
     pub last_login_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl Default for User {
+    fn default() -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            username: String::new(),
+            email: String::new(),
+            password_hash: None,
+            display_name: String::new(),
+            avatar_url: None,
+            is_active: true,
+            email_verified: false,
+            auth_method: AuthMethod::Password,
+            oidc_provider: None,
+            oidc_provider_id: None,
+            last_login_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
 }
 
 impl Entity for User {
@@ -44,6 +90,17 @@ pub struct CreateUser {
     pub email: String,
     pub password: String,
     pub display_name: String,
+}
+
+/// OIDC user creation request
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateOidcUser {
+    pub username: String,
+    pub email: String,
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+    pub provider: String,
+    pub provider_id: String,
 }
 
 /// User update request
@@ -159,6 +216,28 @@ pub struct RefreshTokenResponse {
     pub expires_in: u64,
 }
 
+/// OIDC login request
+#[derive(Debug, Clone, Deserialize)]
+pub struct OidcLoginRequest {
+    pub provider: String,
+}
+
+/// OIDC login URL response
+#[derive(Debug, Clone, Serialize)]
+pub struct OidcLoginUrlResponse {
+    pub auth_url: String,
+    pub state: String,
+    pub pkce_challenge: Option<String>,
+}
+
+/// OIDC callback request
+#[derive(Debug, Clone, Deserialize)]
+pub struct OidcCallbackRequest {
+    pub code: String,
+    pub state: String,
+    pub provider: String,
+}
+
 impl User {
     /// Create a new user with hashed password
     pub async fn create(
@@ -167,19 +246,48 @@ impl User {
     ) -> Result<Self, crate::error::AppError> {
         let password_hash = bcrypt::hash(&create_user.password, bcrypt::DEFAULT_COST)?;
 
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
-            INSERT INTO users (username, email, password_hash, display_name, avatar_url, is_active, email_verified)
-            VALUES ($1, $2, $3, $4, $5, true, false)
+            INSERT INTO users (username, email, password_hash, display_name, avatar_url, is_active, email_verified, auth_method)
+            VALUES ($1, $2, $3, $4, $5, true, false, $6)
             RETURNING *
-            "#,
-            create_user.username,
-            create_user.email,
-            password_hash,
-            create_user.display_name,
-            create_user.avatar_url
+            "#
         )
+        .bind(create_user.username)
+        .bind(create_user.email)
+        .bind(password_hash)
+        .bind(create_user.display_name)
+        .bind(create_user.avatar_url)
+        .bind(AuthMethod::Password as AuthMethod)
+        .fetch_one(db)
+        .await
+        .map_err(crate::error::AppError::Database)?;
+
+        Ok(user)
+    }
+
+    /// Create a new OIDC user (no password)
+    pub async fn create_oidc(
+        db: &sqlx::PgPool,
+        create_user: CreateOidcUser,
+        email_verified: bool,
+    ) -> Result<Self, crate::error::AppError> {
+        let user = sqlx::query_as::<_, User>(
+            r#"
+            INSERT INTO users (username, email, password_hash, display_name, avatar_url, is_active, email_verified, auth_method, oidc_provider, oidc_provider_id)
+            VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9)
+            RETURNING *
+            "#
+        )
+        .bind(create_user.username)
+        .bind(create_user.email)
+        .bind(None::<String>)
+        .bind(create_user.display_name)
+        .bind(create_user.avatar_url)
+        .bind(email_verified)
+        .bind(AuthMethod::Oidc as AuthMethod)
+        .bind(create_user.provider)
+        .bind(create_user.provider_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -192,14 +300,13 @@ impl User {
         db: &sqlx::PgPool,
         user_id: Uuid,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             SELECT * FROM users
             WHERE id = $1 AND is_active = true
-            "#,
-            user_id
+            "#
         )
+        .bind(user_id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -212,14 +319,13 @@ impl User {
         db: &sqlx::PgPool,
         email: &str,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             SELECT * FROM users
             WHERE email = $1 AND is_active = true
-            "#,
-            email
+            "#
         )
+        .bind(email)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -232,14 +338,13 @@ impl User {
         db: &sqlx::PgPool,
         username: &str,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             SELECT * FROM users
             WHERE username = $1 AND is_active = true
-            "#,
-            username
+            "#
         )
+        .bind(username)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -247,9 +352,110 @@ impl User {
         Ok(user)
     }
 
+    /// Find user by OIDC provider and provider ID
+    pub async fn find_by_oidc(
+        db: &sqlx::PgPool,
+        provider: &str,
+        provider_id: &str,
+    ) -> Result<Option<Self>, crate::error::AppError> {
+        let user = sqlx::query_as::<_, User>(
+            r#"
+            SELECT * FROM users
+            WHERE oidc_provider = $1 AND oidc_provider_id = $2 AND is_active = true
+            "#
+        )
+        .bind(provider)
+        .bind(provider_id)
+        .fetch_optional(db)
+        .await
+        .map_err(crate::error::AppError::Database)?;
+
+        Ok(user)
+    }
+
+    /// Find or create OIDC user from provider information
+    pub async fn find_or_create_oidc(
+        db: &sqlx::PgPool,
+        user_info: &OidcUserInfo,
+        provider: &str,
+    ) -> Result<Self, crate::error::AppError> {
+        // First, try to find existing user by OIDC info
+        if let Some(user) = Self::find_by_oidc(db, provider, &user_info.sub).await? {
+            return Ok(user);
+        }
+
+        // If not found, try to find by email (for account linking)
+        if let Some(mut user) = Self::find_by_email(db, &user_info.email).await? {
+            // Link existing account to OIDC provider
+            user = sqlx::query_as::<_, User>(
+                r#"
+                UPDATE users
+                SET
+                    oidc_provider = $1,
+                    oidc_provider_id = $2,
+                    auth_method = $3,
+                    email_verified = COALESCE($4, email_verified),
+                    updated_at = NOW()
+                WHERE id = $5
+                RETURNING *
+                "#
+            )
+            .bind(provider)
+            .bind(user_info.sub)
+            .bind(AuthMethod::Oidc as AuthMethod)
+            .bind(user_info.email_verified)
+            .bind(user.id)
+            .fetch_one(db)
+            .await
+            .map_err(crate::error::AppError::Database)?;
+            return Ok(user);
+        }
+
+        // Create new user from OIDC information
+        let username = user_info.preferred_username
+            .as_ref()
+            .unwrap_or(&user_info.email)
+            .split('@')
+            .next()
+            .unwrap_or("user")
+            .to_string();
+
+        let create_user = CreateOidcUser {
+            username: Self::generate_unique_username(db, &username).await?,
+            email: user_info.email.clone(),
+            display_name: user_info.name.as_ref()
+                .unwrap_or(&user_info.email)
+                .to_string(),
+            avatar_url: user_info.picture.clone(),
+            provider: provider.to_string(),
+            provider_id: user_info.sub.clone(),
+        };
+
+        Self::create_oidc(db, create_user, user_info.email_verified).await
+    }
+
+    /// Generate a unique username by appending a number if needed
+    async fn generate_unique_username(
+        db: &sqlx::PgPool,
+        base_username: &str,
+    ) -> Result<String, crate::error::AppError> {
+        let mut username = base_username.to_string();
+        let mut suffix = 1;
+
+        while Self::find_by_username(db, &username).await?.is_some() {
+            username = format!("{}{}", base_username, suffix);
+            suffix += 1;
+        }
+
+        Ok(username)
+    }
+
     /// Verify user password
     pub fn verify_password(&self, password: &str) -> bool {
-        bcrypt::verify(password, &self.password_hash).unwrap_or(false)
+        match &self.password_hash {
+            Some(hash) => bcrypt::verify(password, hash).unwrap_or(false),
+            None => false, // OIDC users don't have passwords
+        }
     }
 
     /// Update last login timestamp
@@ -257,14 +463,14 @@ impl User {
         &self,
         db: &sqlx::PgPool,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE users
             SET last_login_at = NOW()
             WHERE id = $1
-            "#,
-            self.id
+            "#
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -278,8 +484,7 @@ impl User {
         db: &sqlx::PgPool,
         update_user: UpdateUser,
     ) -> Result<Self, crate::error::AppError> {
-        let user = sqlx::query_as!(
-            User,
+        let user = sqlx::query_as::<_, User>(
             r#"
             UPDATE users
             SET
@@ -289,12 +494,12 @@ impl User {
                 updated_at = NOW()
             WHERE id = $4
             RETURNING *
-            "#,
-            update_user.display_name,
-            update_user.avatar_url,
-            update_user.is_active,
-            self.id
+            "#
         )
+        .bind(update_user.display_name)
+        .bind(update_user.avatar_url)
+        .bind(update_user.is_active)
+        .bind(self.id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -307,14 +512,14 @@ impl User {
         &self,
         db: &sqlx::PgPool,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE users
             SET is_active = false, updated_at = NOW()
             WHERE id = $1
-            "#,
-            self.id
+            "#
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -327,14 +532,13 @@ impl User {
         &self,
         db: &sqlx::PgPool,
     ) -> Result<UserPreferences, crate::error::AppError> {
-        let preferences = sqlx::query_as!(
-            UserPreferences,
+        let preferences = sqlx::query_as::<_, UserPreferences>(
             r#"
             SELECT * FROM user_preferences
             WHERE user_id = $1
-            "#,
-            self.id
+            "#
         )
+        .bind(self.id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -348,8 +552,7 @@ impl User {
         db: &sqlx::PgPool,
         preferences: &UserPreferences,
     ) -> Result<UserPreferences, crate::error::AppError> {
-        let updated = sqlx::query_as!(
-            UserPreferences,
+        let updated = sqlx::query_as::<_, UserPreferences>(
             r#"
             INSERT INTO user_preferences (
                 user_id, theme, language, latex_engine, auto_save,
@@ -367,17 +570,17 @@ impl User {
                 tab_size = EXCLUDED.tab_size,
                 updated_at = NOW()
             RETURNING *
-            "#,
-            self.id,
-            preferences.theme,
-            preferences.language,
-            preferences.latex_engine,
-            preferences.auto_save,
-            preferences.line_numbers,
-            preferences.word_wrap,
-            preferences.font_size,
-            preferences.tab_size
+            "#
         )
+        .bind(self.id)
+        .bind(preferences.theme)
+        .bind(preferences.language)
+        .bind(preferences.latex_engine)
+        .bind(preferences.auto_save)
+        .bind(preferences.line_numbers)
+        .bind(preferences.word_wrap)
+        .bind(preferences.font_size)
+        .bind(preferences.tab_size)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;

@@ -229,8 +229,7 @@ pub async fn search_users(
     };
 
     // Search users by username, display name, or email
-    let users = sqlx::query_as!(
-        UserProfile,
+    let users = sqlx::query_as::<_, UserProfile>(
         r#"
         SELECT id, username, email, display_name, avatar_url,
                is_active, email_verified, last_login_at, created_at
@@ -242,17 +241,17 @@ pub async fn search_users(
         )
         ORDER BY username
         LIMIT $2 OFFSET $3
-        "#,
-        query,
-        limit,
-        offset
+        "#
     )
+    .bind(query)
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
 
     // Get total count
-    let total = sqlx::query_scalar!(
+    let total = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT COUNT(*) FROM users
         WHERE is_active = true AND (
@@ -260,9 +259,9 @@ pub async fn search_users(
             display_name ILIKE $1 OR
             email ILIKE $1
         )
-        "#,
-        query
+        "#
     )
+    .bind(query)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -311,12 +310,12 @@ pub async fn get_user_stats(
     // This endpoint would require admin privileges
     // For now, it's a placeholder
 
-    let total_users = sqlx::query_scalar!("SELECT COUNT(*) FROM users WHERE is_active = true")
+    let total_users = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE is_active = true")
         .fetch_one(&state.db_pool)
         .await
         .map_err(AppError::Database)?;
 
-    let new_users_this_month = sqlx::query_scalar!(
+    let new_users_this_month = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM users WHERE is_active = true AND created_at >= date_trunc('month', CURRENT_DATE)"
     )
     .fetch_one(&state.db_pool)

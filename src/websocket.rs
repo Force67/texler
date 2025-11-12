@@ -249,7 +249,7 @@ impl WsServerState {
         )
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -294,11 +294,10 @@ impl WsServerState {
         participant_id: Uuid,
     ) -> Result<(), AppError> {
         // Update participant status
-        let participant = sqlx::query_as!(
-            SessionParticipant,
-            "SELECT * FROM session_participants WHERE id = $1",
-            participant_id
+        let participant = sqlx::query_as::<_, SessionParticipant>(
+            "SELECT * FROM session_participants WHERE id = $1"
         )
+        .bind(participant_id)
         .fetch_optional(&*self.db_pool)
         .await
         .map_err(AppError::Database)?;
@@ -345,7 +344,7 @@ impl WsServerState {
             operation_data.to_string(),
             file_id,
             position,
-            content,
+            content.clone(),
         )
         .await?;
 
@@ -378,20 +377,19 @@ impl WsServerState {
         reply_to: Option<Uuid>,
     ) -> Result<(), AppError> {
         // Create message record
-        let message = sqlx::query_as!(
-            SessionMessage,
+        let message = sqlx::query_as::<_, SessionMessage>(
             r#"
             INSERT INTO session_messages (session_id, user_id, message_type, content, reply_to, created_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
-            session_id,
-            user_id,
-            message_type as MessageType,
-            content,
-            reply_to,
-            Utc::now()
+            "#
         )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(message_type as MessageType)
+        .bind(content)
+        .bind(reply_to)
+        .bind(Utc::now())
         .fetch_one(&*self.db_pool)
         .await
         .map_err(AppError::Database)?;
@@ -414,7 +412,7 @@ impl WsServerState {
 
 /// WebSocket handler for a single connection
 pub async fn handle_websocket_connection(
-    stream: WebSocketStream<tokio::net::TcpStream>,
+    stream: WsStream<tokio::net::TcpStream>,
     connection_id: String,
     state: Arc<WsServerState>,
 ) {
@@ -428,10 +426,12 @@ pub async fn handle_websocket_connection(
     // Get message receiver for broadcasts
     let session_id = {
         let connections = state.connections.read().await;
-        connections
-            .get(&connection_id)
-            .map(|s| s.read().await.session_id)
-            .flatten()
+        if let Some(connection) = connections.get(&connection_id) {
+            let conn = connection.read().await;
+            conn.session_id
+        } else {
+            None
+        }
     };
 
     let mut broadcast_receiver = if let Some(session_id) = session_id {
@@ -505,7 +505,7 @@ async fn handle_message(
     match msg {
         Message::Text(text) => {
             let ws_message: WsMessage = serde_json::from_str(&text)
-                .map_err(|e| AppError::Validation(format!("Invalid WebSocket message: {}", e)))?;
+                .map_err(|e| AppError::BadRequest(format!("Invalid WebSocket message: {}", e)))?;
 
             handle_ws_message(connection_id, ws_message, state, sender, broadcast_receiver).await
         }
@@ -532,6 +532,10 @@ async fn handle_message(
         }
         Message::Close(_) => {
             debug!("WebSocket connection {} closing", connection_id);
+            Ok(())
+        }
+        Message::Frame(_) => {
+            debug!("Received raw frame from WebSocket connection: {}", connection_id);
             Ok(())
         }
     }
@@ -599,11 +603,16 @@ async fn handle_ws_message(
             // Get user from connection state
             let user_id = {
                 let connections = state.connections.read().await;
-                connections
-                    .get(connection_id)
-                    .and_then(|s| s.read().await.user.as_ref())
-                    .map(|u| u.user_id)
-                    .ok_or_else(|| AppError::Authentication("Not authenticated".to_string()))?
+                if let Some(connection) = connections.get(connection_id) {
+                    let conn = connection.read().await;
+                    if let Some(user) = &conn.user {
+                        user.user_id
+                    } else {
+                        return Err(AppError::Authentication("Not authenticated".to_string()));
+                    }
+                } else {
+                    return Err(AppError::Authentication("Connection not found".to_string()));
+                }
             };
 
             // Handle session join
@@ -612,7 +621,7 @@ async fn handle_ws_message(
                     // Get session info and current participants
                     let session_info = CollaborationSession::find_by_id(&*state.db_pool, session_id).await?
                         .ok_or_else(|| AppError::NotFound {
-                            entity: "CollaborationSession",
+                            entity: "CollaborationSession".to_string(),
                             id: session_id.to_string(),
                         })?;
 
@@ -662,11 +671,16 @@ async fn handle_ws_message(
         WsMessage::Operation { session_id, operation_type, position, content, length, file_id } => {
             let user_id = {
                 let connections = state.connections.read().await;
-                connections
-                    .get(connection_id)
-                    .and_then(|s| s.read().await.user.as_ref())
-                    .map(|u| u.user_id)
-                    .ok_or_else(|| AppError::Authentication("Not authenticated".to_string()))?
+                if let Some(connection) = connections.get(connection_id) {
+                    let conn = connection.read().await;
+                    if let Some(user) = &conn.user {
+                        user.user_id
+                    } else {
+                        return Err(AppError::Authentication("Not authenticated".to_string()));
+                    }
+                } else {
+                    return Err(AppError::Authentication("Connection not found".to_string()));
+                }
             };
 
             if let Err(e) = state.handle_operation(session_id, user_id, operation_type, position, content, length, file_id).await {
@@ -683,11 +697,16 @@ async fn handle_ws_message(
         WsMessage::ChatMessage { session_id, content, message_type, reply_to } => {
             let user_id = {
                 let connections = state.connections.read().await;
-                connections
-                    .get(connection_id)
-                    .and_then(|s| s.read().await.user.as_ref())
-                    .map(|u| u.user_id)
-                    .ok_or_else(|| AppError::Authentication("Not authenticated".to_string()))?
+                if let Some(connection) = connections.get(connection_id) {
+                    let conn = connection.read().await;
+                    if let Some(user) = &conn.user {
+                        user.user_id
+                    } else {
+                        return Err(AppError::Authentication("Not authenticated".to_string()));
+                    }
+                } else {
+                    return Err(AppError::Authentication("Connection not found".to_string()));
+                }
             };
 
             if let Err(e) = state.handle_chat_message(session_id, user_id, content, message_type, reply_to).await {

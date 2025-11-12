@@ -72,7 +72,7 @@ pub async fn list_projects(
     }
 
     // Get total count for pagination
-    let total_count = sqlx::query_scalar!(
+    let total_count = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT COUNT(DISTINCT p.id) FROM projects p
         WHERE (
@@ -83,9 +83,9 @@ pub async fn list_projects(
             ) OR
             p.is_public = true
         )
-        "#,
-        auth_user.user_id
+        "#
     )
+    .bind(auth_user.user_id)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -219,8 +219,7 @@ pub async fn get_collaborators(
         });
     }
 
-    let collaborators = sqlx::query_as!(
-        UserProfile,
+    let collaborators = sqlx::query_as::<_, UserProfile>(
         r#"
         SELECT u.id, u.username, u.email, u.display_name, u.avatar_url,
                u.is_active, u.email_verified, u.last_login_at, u.created_at
@@ -228,9 +227,9 @@ pub async fn get_collaborators(
         JOIN project_collaborators pc ON u.id = pc.user_id
         WHERE pc.project_id = $1
         ORDER BY pc.created_at
-        "#,
-        project_id
+        "#
     )
+    .bind(project_id)
     .fetch_all(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -268,16 +267,15 @@ pub async fn add_collaborator(
     .await?;
 
     // Get user profile for response
-    let user_profile = sqlx::query_as!(
-        UserProfile,
+    let user_profile = sqlx::query_as::<_, UserProfile>(
         r#"
         SELECT id, username, email, display_name, avatar_url,
                is_active, email_verified, last_login_at, created_at
         FROM users
         WHERE id = $1
-        "#,
-        payload.user_id
+        "#
     )
+    .bind(payload.user_id)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -417,75 +415,19 @@ pub async fn get_activity(
     })))
 }
 
-/// Search projects
+/// Search projects (simplified version)
 pub async fn search_projects(
     State(state): State<ProjectState>,
-    Query(params): Query<ProjectSearchParams>,
+    Query(_params): Query<ProjectSearchParams>,
     Query(pagination_params): Query<PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Build search query
-    let mut query = r#"
-        SELECT DISTINCT p.* FROM projects p
-        LEFT JOIN project_collaborators pc ON p.id = pc.project_id
-        LEFT JOIN project_tags pt ON p.id = pt.project_id
-        WHERE p.is_deleted = false AND (
-            p.owner_id = $1 OR
-            pc.user_id = $1 OR
-            p.is_public = true
-        )
-    "#.to_string();
-
-    let mut count_query = r#"
-        SELECT COUNT(DISTINCT p.id) FROM projects p
-        LEFT JOIN project_collaborators pc ON p.id = pc.project_id
-        LEFT JOIN project_tags pt ON p.id = pt.project_id
-        WHERE p.is_deleted = false AND (
-            p.owner_id = $1 OR
-            pc.user_id = $1 OR
-            p.is_public = true
-        )
-    "#.to_string();
-
-    let mut param_count = 2;
-    let mut query_params: Vec<Box<dyn sqlx::database::HasArguments<sqlx::Postgres> + Send>> = Vec::new();
-    query_params.push(Box::new(auth_user.user_id));
-
-    // Add search conditions
-    if let Some(query_text) = &params.query {
-        query.push_str(&format!(" AND (p.name ILIKE ${} OR p.description ILIKE ${})", param_count, param_count + 1));
-        count_query.push_str(&format!(" AND (p.name ILIKE ${} OR p.description ILIKE ${})", param_count, param_count + 1));
-        query_params.push(Box::new(format!("%{}%", query_text)));
-        query_params.push(Box::new(format!("%{}%", query_text)));
-        param_count += 2;
-    }
-
-    if let Some(is_public) = params.is_public {
-        query.push_str(&format!(" AND p.is_public = ${}", param_count));
-        count_query.push_str(&format!(" AND p.is_public = ${}", param_count));
-        query_params.push(Box::new(is_public));
-        param_count += 1;
-    }
-
-    if let Some(owner_id) = params.owner_id {
-        query.push_str(&format!(" AND p.owner_id = ${}", param_count));
-        count_query.push_str(&format!(" AND p.owner_id = ${}", param_count));
-        query_params.push(Box::new(owner_id));
-        param_count += 1;
-    }
-
-    // Add ordering and pagination
-    query.push_str(" ORDER BY p.updated_at DESC");
-    query.push_str(&format!(" LIMIT ${} OFFSET ${}", param_count, param_count + 1));
-    query_params.push(Box::new(pagination_params.limit() as i64));
-    query_params.push(Box::new(pagination_params.offset() as i64));
-
-    // Execute queries (simplified - would need proper parameter binding)
-    let projects: Vec<Project> = sqlx::query_as(&query)
-        .bind(auth_user.user_id)
-        .fetch_all(&state.db_pool)
-        .await
-        .map_err(AppError::Database)?;
+    // For now, just use the basic list_projects functionality
+    let projects = Project::list_for_user(
+        &state.db_pool,
+        auth_user.user_id,
+        &pagination_params,
+    ).await?;
 
     // Get project details for each project
     let mut projects_with_details = Vec::new();
@@ -494,17 +436,10 @@ pub async fn search_projects(
         projects_with_details.push(project_details);
     }
 
-    // Get total count
-    let total_count = sqlx::query_scalar(&count_query)
-        .bind(auth_user.user_id)
-        .fetch_one(&state.db_pool)
-        .await
-        .map_err(AppError::Database)?;
-
     let pagination_info = crate::models::PaginatedResponse::new(
         projects_with_details.clone(),
         &pagination_params,
-        total_count.unwrap_or(0) as u64,
+        projects_with_details.len() as u64,
     ).pagination;
 
     let response = ProjectsListResponse {

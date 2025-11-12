@@ -69,3 +69,4 @@ ehthumbs.db
 .dockerignore
 *.json
 /target
+.env

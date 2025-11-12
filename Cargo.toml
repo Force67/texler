@@ -15,7 +15,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate"], default-features = false }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "derive"], default-features = false }
 deadpool-postgres = "0.14"
 redis = { version = "0.25", features = ["tokio-comp"] }
 
@@ -29,6 +29,7 @@ bcrypt = "0.15"
 uuid = { version = "1.11", features = ["v4", "serde", "fast-rng"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
+authware = { git = "https://github.com/Force67/authware.git" }
 
 # WebSocket
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots", "connect"], default-features = false }
@@ -60,6 +61,9 @@ lazy_static = "1.5"
 base64 = "0.22"
 sha2 = "0.10"
 hex = "0.4"
+num_cpus = "1.16"
+percent-encoding = "2.3"
+url = "2.5"
 
 # Async utilities
 tokio-cron-scheduler = "0.10"
@@ -73,6 +77,7 @@ lettre = { version = "0.11", features = ["rustls-tls"], default-features = false
 
 # Metrics
 prometheus = "0.13"
+regex = "1.12.2"
 
 [patch.crates-io]
 # Use patched versions if needed

@@ -82,16 +82,16 @@ impl Entity for CompilationQueue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum QueuePriority {
     #[serde(rename = "low")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "low")]
     Low,
     #[serde(rename = "normal")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "normal")]
     Normal,
     #[serde(rename = "high")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "high")]
     High,
     #[serde(rename = "urgent")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "urgent")]
     Urgent,
 }
 
@@ -137,16 +137,16 @@ impl Entity for CompilationWorker {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum WorkerStatus {
     #[serde(rename = "idle")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "idle")]
     Idle,
     #[serde(rename = "busy")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "busy")]
     Busy,
     #[serde(rename = "maintenance")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "maintenance")]
     Maintenance,
     #[serde(rename = "offline")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "offline")]
     Offline,
 }
 
@@ -223,26 +223,37 @@ impl Entity for CompilationArtifact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum ArtifactType {
     #[serde(rename = "pdf")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "pdf")]
     Pdf,
     #[serde(rename = "dvi")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "dvi")]
     Dvi,
     #[serde(rename = "ps")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "ps")]
     Ps,
     #[serde(rename = "log")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "log")]
     Log,
     #[serde(rename = "aux")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "aux")]
     Aux,
     #[serde(rename = "bbl")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "bbl")]
     Bbl,
     #[serde(rename = "other")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "other")]
     Other,
+}
+
+/// Helper struct for compilation stats query result
+#[derive(Debug, Clone, FromRow)]
+struct CompilationStatsRow {
+    pub total_jobs: i64,
+    pub successful_jobs: i64,
+    pub failed_jobs: i64,
+    pub cancelled_jobs: i64,
+    pub avg_duration: f64,
+    pub total_output_size: i64,
 }
 
 /// Compilation statistics
@@ -333,27 +344,26 @@ impl CompilationJob {
             "-output-directory=output".to_string(),
         ]);
 
-        let job = sqlx::query_as!(
-            CompilationJob,
+        let job = sqlx::query_as::<_, CompilationJob>(
             r#"
             INSERT INTO compilation_jobs (
                 project_id, user_id, file_id, engine, command, args,
                 working_directory, input_files, status, created_at, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING *
-            "#,
-            project_id,
-            user_id,
-            create_job.file_id,
-            engine as LatexEngine,
-            command,
-            &args,
-            working_directory,
-            &input_files,
-            CompilationStatus::Pending as CompilationStatus,
-            Utc::now(),
-            Utc::now()
+            "#
         )
+        .bind(project_id)
+        .bind(user_id)
+        .bind(create_job.file_id)
+        .bind(engine as LatexEngine)
+        .bind(command)
+        .bind(&args)
+        .bind(working_directory)
+        .bind(&input_files)
+        .bind(CompilationStatus::Pending as CompilationStatus)
+        .bind(Utc::now())
+        .bind(Utc::now())
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -370,8 +380,7 @@ impl CompilationJob {
         job_id: Uuid,
         user_id: Uuid,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let job = sqlx::query_as!(
-            CompilationJob,
+        let job = sqlx::query_as::<_, CompilationJob>(
             r#"
             SELECT cj.* FROM compilation_jobs cj
             JOIN projects p ON cj.project_id = p.id
@@ -384,10 +393,10 @@ impl CompilationJob {
                 ) OR
                 p.is_public = true
             )
-            "#,
-            job_id,
-            user_id
+            "#
         )
+        .bind(job_id)
+        .bind(user_id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -415,31 +424,31 @@ impl CompilationJob {
             _ => (None, None),
         };
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE compilation_jobs
             SET status = $1, error_message = $2, completed_at = $3, duration_ms = $4, updated_at = $5
             WHERE id = $6
-            "#,
-            status as CompilationStatus,
-            error_message,
-            completed_at,
-            duration_ms,
-            Utc::now(),
-            self.id
+            "#
         )
+        .bind(status as CompilationStatus)
+        .bind(error_message)
+        .bind(completed_at)
+        .bind(duration_ms)
+        .bind(Utc::now())
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Update project compilation status if successful
         if status == CompilationStatus::Success {
-            sqlx::query!(
-                "UPDATE projects SET compilation_status = $1, last_compilation_at = $2 WHERE id = $3",
-                status as CompilationStatus,
-                Utc::now(),
-                self.project_id
+            sqlx::query(
+                "UPDATE projects SET compilation_status = $1, last_compilation_at = $2 WHERE id = $3"
             )
+            .bind(status as CompilationStatus)
+            .bind(Utc::now())
+            .bind(self.project_id)
             .execute(db)
             .await
             .map_err(crate::error::AppError::Database)?;
@@ -454,25 +463,25 @@ impl CompilationJob {
         db: &sqlx::PgPool,
         worker_id: Option<String>,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE compilation_jobs SET status = $1, started_at = $2, updated_at = $3 WHERE id = $4",
-            CompilationStatus::Running as CompilationStatus,
-            Utc::now(),
-            Utc::now(),
-            self.id
+        sqlx::query(
+            "UPDATE compilation_jobs SET status = $1, started_at = $2, updated_at = $3 WHERE id = $4"
         )
+        .bind(CompilationStatus::Running as CompilationStatus)
+        .bind(Utc::now())
+        .bind(Utc::now())
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Update queue
         if let Some(queue_id) = self.get_queue_id(db).await? {
-            sqlx::query!(
-                "UPDATE compilation_queue SET started_at = $1, worker_id = $2 WHERE id = $3",
-                Utc::now(),
-                worker_id,
-                queue_id
+            sqlx::query(
+                "UPDATE compilation_queue SET started_at = $1, worker_id = $2 WHERE id = $3"
             )
+            .bind(Utc::now())
+            .bind(worker_id)
+            .bind(queue_id)
             .execute(db)
             .await
             .map_err(crate::error::AppError::Database)?;
@@ -505,46 +514,46 @@ impl CompilationJob {
             None
         };
 
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE compilation_jobs
             SET status = $1, completed_at = $2, duration_ms = $3, exit_code = $4,
                 stdout = $5, stderr = $6, output_files = $7, artifacts_created = $8,
                 output_size_bytes = $9, updated_at = $10
             WHERE id = $11
-            "#,
-            status as CompilationStatus,
-            completed_at,
-            duration_ms,
-            exit_code,
-            stdout,
-            stderr,
-            &output_files,
-            artifacts_created,
-            output_size_bytes,
-            Utc::now(),
-            self.id
+            "#
         )
+        .bind(status as CompilationStatus)
+        .bind(completed_at)
+        .bind(duration_ms)
+        .bind(exit_code)
+        .bind(stdout)
+        .bind(stderr)
+        .bind(&output_files)
+        .bind(artifacts_created)
+        .bind(output_size_bytes)
+        .bind(Utc::now())
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Remove from queue
-        sqlx::query!(
-            "DELETE FROM compilation_queue WHERE job_id = $1",
-            self.id
+        sqlx::query(
+            "DELETE FROM compilation_queue WHERE job_id = $1"
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Update project compilation status
-        sqlx::query!(
-            "UPDATE projects SET compilation_status = $1, last_compilation_at = $2 WHERE id = $3",
-            status as CompilationStatus,
-            Utc::now(),
-            self.project_id
+        sqlx::query(
+            "UPDATE projects SET compilation_status = $1, last_compilation_at = $2 WHERE id = $3"
         )
+        .bind(status as CompilationStatus)
+        .bind(Utc::now())
+        .bind(self.project_id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -554,15 +563,15 @@ impl CompilationJob {
 
     /// Get queue ID for this job
     async fn get_queue_id(&self, db: &sqlx::PgPool) -> Result<Option<Uuid>, crate::error::AppError> {
-        let queue_id = sqlx::query_scalar!(
-            "SELECT id FROM compilation_queue WHERE job_id = $1",
-            self.id
+        let queue_id = sqlx::query_scalar::<_, Uuid>(
+            "SELECT id FROM compilation_queue WHERE job_id = $1"
         )
+        .bind(self.id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
-        Ok(queue_id.flatten())
+        Ok(queue_id.and_then(|id| Some(id)))
     }
 
     /// List jobs for a user
@@ -571,8 +580,7 @@ impl CompilationJob {
         user_id: Uuid,
         params: &super::PaginationParams,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let jobs = sqlx::query_as!(
-            CompilationJob,
+        let jobs = sqlx::query_as::<_, CompilationJob>(
             r#"
             SELECT cj.* FROM compilation_jobs cj
             JOIN projects p ON cj.project_id = p.id
@@ -581,11 +589,11 @@ impl CompilationJob {
             )
             ORDER BY cj.created_at DESC
             LIMIT $2 OFFSET $3
-            "#,
-            user_id,
-            params.limit() as i64,
-            params.offset() as i64
+            "#
         )
+        .bind(user_id)
+        .bind(params.limit() as i64)
+        .bind(params.offset() as i64)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -602,28 +610,27 @@ impl CompilationQueue {
         priority: QueuePriority,
     ) -> Result<Self, crate::error::AppError> {
         // Get the next queue position for this priority
-        let queue_position = sqlx::query_scalar!(
-            "SELECT COALESCE(MAX(queue_position), 0) + 1 FROM compilation_queue WHERE priority = $1",
-            priority as QueuePriority
+        let queue_position = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(MAX(queue_position), 0) + 1 FROM compilation_queue WHERE priority = $1"
         )
+        .bind(priority as QueuePriority)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
-        let queue_item = sqlx::query_as!(
-            CompilationQueue,
+        let queue_item = sqlx::query_as::<_, CompilationQueue>(
             r#"
             INSERT INTO compilation_queue (job_id, priority, queue_position, queued_at, retry_count, max_retries)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
-            job_id,
-            priority as QueuePriority,
-            queue_position.unwrap_or(1),
-            Utc::now(),
-            0,
-            3
+            "#
         )
+        .bind(job_id)
+        .bind(priority as QueuePriority)
+        .bind(queue_position)
+        .bind(Utc::now())
+        .bind(0)
+        .bind(3)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -633,8 +640,7 @@ impl CompilationQueue {
 
     /// Get next job from queue
     pub async fn dequeue(db: &sqlx::PgPool) -> Result<Option<(Self, CompilationJob)>, crate::error::AppError> {
-        let queue_item = sqlx::query_as!(
-            CompilationQueue,
+        let queue_item = sqlx::query_as::<_, CompilationQueue>(
             r#"
             UPDATE compilation_queue
             SET started_at = NOW()
@@ -653,11 +659,10 @@ impl CompilationQueue {
         .map_err(crate::error::AppError::Database)?;
 
         if let Some(queue_item) = queue_item {
-            let job = sqlx::query_as!(
-                CompilationJob,
-                "SELECT * FROM compilation_jobs WHERE id = $1",
-                queue_item.job_id
+            let job = sqlx::query_as::<_, CompilationJob>(
+                "SELECT * FROM compilation_jobs WHERE id = $1"
             )
+            .bind(queue_item.job_id)
             .fetch_one(db)
             .await
             .map_err(crate::error::AppError::Database)?;
@@ -670,14 +675,14 @@ impl CompilationQueue {
 
     /// Get queue length
     pub async fn get_queue_length(db: &sqlx::PgPool) -> Result<i64, crate::error::AppError> {
-        let count = sqlx::query_scalar!(
+        let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM compilation_queue WHERE started_at IS NULL"
         )
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
-        Ok(count.unwrap_or(0))
+        Ok(count)
     }
 }
 
@@ -688,8 +693,7 @@ impl CompilationTemplate {
         created_by: Uuid,
         create_template: CreateCompilationTemplate,
     ) -> Result<Self, crate::error::AppError> {
-        let template = sqlx::query_as!(
-            CompilationTemplate,
+        let template = sqlx::query_as::<_, CompilationTemplate>(
             r#"
             INSERT INTO compilation_templates (
                 name, description, engine, command_template, default_args,
@@ -697,21 +701,21 @@ impl CompilationTemplate {
                 usage_count, success_rate, created_at, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
-            "#,
-            create_template.name,
-            create_template.description,
-            create_template.engine as LatexEngine,
-            create_template.command_template,
-            create_template.default_args.unwrap_or_default(),
-            create_template.required_files.unwrap_or_default(),
-            create_template.output_patterns.unwrap_or_default(),
-            create_template.is_public.unwrap_or(false),
-            created_by,
-            0,
-            1.0,
-            Utc::now(),
-            Utc::now()
+            "#
         )
+        .bind(create_template.name)
+        .bind(create_template.description)
+        .bind(create_template.engine as LatexEngine)
+        .bind(create_template.command_template)
+        .bind(create_template.default_args.unwrap_or_default())
+        .bind(create_template.required_files.unwrap_or_default())
+        .bind(create_template.output_patterns.unwrap_or_default())
+        .bind(create_template.is_public.unwrap_or(false))
+        .bind(created_by)
+        .bind(0)
+        .bind(1.0)
+        .bind(Utc::now())
+        .bind(Utc::now())
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -725,7 +729,7 @@ impl CompilationTemplate {
         db: &sqlx::PgPool,
         success: bool,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
+        sqlx::query(
             r#"
             UPDATE compilation_templates
             SET
@@ -735,10 +739,10 @@ impl CompilationTemplate {
                 ),
                 updated_at = NOW()
             WHERE id = $1
-            "#,
-            self.id,
-            success
+            "#
         )
+        .bind(self.id)
+        .bind(success)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -754,7 +758,7 @@ impl CompilationStats {
         period_start: DateTime<Utc>,
         period_end: DateTime<Utc>,
     ) -> Result<Self, crate::error::AppError> {
-        let basic_stats = sqlx::query!(
+        let basic_stats = sqlx::query_as::<_, CompilationStatsRow>(
             r#"
             SELECT
                 COUNT(*) as total_jobs,
@@ -765,18 +769,18 @@ impl CompilationStats {
                 COALESCE(SUM(output_size_bytes), 0) as total_output_size
             FROM compilation_jobs
             WHERE created_at BETWEEN $1 AND $2
-            "#,
-            period_start,
-            period_end
+            "#
         )
+        .bind(period_start)
+        .bind(period_end)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
-        let total_jobs = basic_stats.total_jobs.unwrap_or(0);
-        let successful_jobs = basic_stats.successful_jobs.unwrap_or(0);
-        let failed_jobs = basic_stats.failed_jobs.unwrap_or(0);
-        let cancelled_jobs = basic_stats.cancelled_jobs.unwrap_or(0);
+        let total_jobs = basic_stats.total_jobs;
+        let successful_jobs = basic_stats.successful_jobs;
+        let failed_jobs = basic_stats.failed_jobs;
+        let cancelled_jobs = basic_stats.cancelled_jobs;
 
         let success_rate = if total_jobs > 0 {
             successful_jobs as f64 / total_jobs as f64
@@ -791,8 +795,8 @@ impl CompilationStats {
             successful_jobs,
             failed_jobs,
             cancelled_jobs,
-            average_duration_ms: basic_stats.avg_duration.unwrap_or(0.0),
-            total_output_size_mb: basic_stats.total_output_size.unwrap_or(0) as f64 / (1024.0 * 1024.0),
+            average_duration_ms: basic_stats.avg_duration,
+            total_output_size_mb: basic_stats.total_output_size as f64 / (1024.0 * 1024.0),
             success_rate,
             jobs_by_engine: vec![], // TODO: Implement engine-specific stats
             jobs_by_status: vec![],  // TODO: Implement status-specific stats

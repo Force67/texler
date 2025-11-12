@@ -11,6 +11,7 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub redis: RedisConfig,
     pub jwt: JwtConfig,
+    pub oidc: OidcConfig,
     pub websocket: WebSocketConfig,
     pub latex: LatexConfig,
     pub email: EmailConfig,
@@ -28,6 +29,7 @@ impl Config {
             database: DatabaseConfig::load()?,
             redis: RedisConfig::load()?,
             jwt: JwtConfig::load()?,
+            oidc: OidcConfig::load()?,
             websocket: WebSocketConfig::load()?,
             latex: LatexConfig::load()?,
             email: EmailConfig::load()?,
@@ -213,6 +215,73 @@ impl JwtConfig {
             issuer: env::var("JWT_ISSUER")
                 .unwrap_or_else(|_| "texler".to_string()),
         })
+    }
+}
+
+/// OIDC configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcConfig {
+    pub enabled: bool,
+    pub providers: Vec<OidcProvider>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OidcProvider {
+    pub name: String,
+    pub display_name: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub issuer_url: String,
+    pub redirect_uri: String,
+    pub scopes: Vec<String>,
+}
+
+impl OidcConfig {
+    fn load() -> Result<Self, Box<dyn std::error::Error>> {
+        let enabled = env::var("OIDC_ENABLED")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse()
+            .unwrap_or(false);
+
+        if !enabled {
+            return Ok(OidcConfig {
+                enabled: false,
+                providers: vec![],
+            });
+        }
+
+        // Load OIDC providers from environment variables
+        // Format: OIDC_PROVIDER_0_NAME, OIDC_PROVIDER_0_CLIENT_ID, etc.
+        let mut providers = Vec::new();
+        let mut i = 0;
+
+        loop {
+            let name = env::var(format!("OIDC_PROVIDER_{}_NAME", i));
+            if name.is_err() {
+                break;
+            }
+
+            let provider = OidcProvider {
+                name: name.unwrap(),
+                display_name: env::var(format!("OIDC_PROVIDER_{}_DISPLAY_NAME", i))
+                    .unwrap_or_else(|_| format!("Provider {}", i)),
+                client_id: env::var(format!("OIDC_PROVIDER_{}_CLIENT_ID", i))?,
+                client_secret: env::var(format!("OIDC_PROVIDER_{}_CLIENT_SECRET", i))?,
+                issuer_url: env::var(format!("OIDC_PROVIDER_{}_ISSUER_URL", i))?,
+                redirect_uri: env::var(format!("OIDC_PROVIDER_{}_REDIRECT_URI", i))
+                    .unwrap_or_else(|_| format!("{}/api/v1/auth/oidc/callback", env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()))),
+                scopes: env::var(format!("OIDC_PROVIDER_{}_SCOPES", i))
+                    .unwrap_or_else(|_| "openid,email,profile".to_string())
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .collect(),
+            };
+
+            providers.push(provider);
+            i += 1;
+        }
+
+        Ok(OidcConfig { enabled, providers })
     }
 }
 

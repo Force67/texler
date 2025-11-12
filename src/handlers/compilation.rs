@@ -77,16 +77,16 @@ pub async fn list_jobs(
     let jobs = CompilationJob::list_for_user(&state.db_pool, auth_user.user_id, &params).await?;
 
     // Get total count for pagination
-    let total_count = sqlx::query_scalar!(
+    let total_count: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*) FROM compilation_jobs cj
         JOIN projects p ON cj.project_id = p.id
         WHERE cj.user_id = $1 OR p.owner_id = $1 OR p.id IN (
             SELECT project_id FROM project_collaborators WHERE user_id = $1
         )
-        "#,
-        auth_user.user_id
+        "#
     )
+    .bind(auth_user.user_id)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -94,7 +94,7 @@ pub async fn list_jobs(
     let pagination_info = crate::models::PaginatedResponse::new(
         jobs.clone(),
         &params,
-        total_count.unwrap_or(0) as u64,
+        total_count as u64,
     ).pagination;
 
     let response = CompilationJobsListResponse {
@@ -117,7 +117,7 @@ pub async fn create_job(
     // Check project access
     if !crate::models::project::Project::has_access(&state.db_pool, payload.project_id, auth_user.user_id).await? {
         return Err(AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: payload.project_id.to_string(),
         });
     }
@@ -166,7 +166,7 @@ pub async fn get_job(
     let job = CompilationJob::find_by_id(&state.db_pool, job_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CompilationJob",
+            entity: "CompilationJob".to_string(),
             id: job_id.to_string(),
         })?;
 
@@ -190,7 +190,7 @@ pub async fn cancel_job(
     let job = CompilationJob::find_by_id(&state.db_pool, job_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CompilationJob",
+            entity: "CompilationJob".to_string(),
             id: job_id.to_string(),
         })?;
 
@@ -226,7 +226,7 @@ pub async fn get_job_logs(
     let job = CompilationJob::find_by_id(&state.db_pool, job_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CompilationJob",
+            entity: "CompilationJob".to_string(),
             id: job_id.to_string(),
         })?;
 
@@ -254,7 +254,7 @@ pub async fn get_job_artifacts(
     let job = CompilationJob::find_by_id(&state.db_pool, job_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CompilationJob",
+            entity: "CompilationJob".to_string(),
             id: job_id.to_string(),
         })?;
 
@@ -280,14 +280,14 @@ pub async fn get_queue_status(
 ) -> Result<impl IntoResponse, AppError> {
     let queue_length = crate::models::compilation::CompilationQueue::get_queue_length(&state.db_pool).await?;
 
-    let processing_jobs = sqlx::query_scalar!(
+    let processing_jobs: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM compilation_jobs WHERE status = 'running'"
     )
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
 
-    let workers_online = sqlx::query_scalar!(
+    let workers_online: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM compilation_workers WHERE status = 'idle' OR status = 'busy'"
     )
     .fetch_one(&state.db_pool)
@@ -320,23 +320,22 @@ pub async fn list_templates(
     Query(params): Query<crate::models::PaginationParams>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let templates = sqlx::query_as!(
-        CompilationTemplate,
+    let templates = sqlx::query_as::<_, CompilationTemplate>(
         r#"
         SELECT * FROM compilation_templates
         WHERE is_public = true
         ORDER BY success_rate DESC, usage_count DESC
         LIMIT $1 OFFSET $2
-        "#,
-        params.limit() as i64,
-        params.offset() as i64
+        "#
     )
+    .bind(params.limit() as i64)
+    .bind(params.offset() as i64)
     .fetch_all(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
 
     // Get total count for pagination
-    let total_count = sqlx::query_scalar!(
+    let total_count = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM compilation_templates WHERE is_public = true"
     )
     .fetch_one(&state.db_pool)
@@ -346,7 +345,7 @@ pub async fn list_templates(
     let pagination_info = crate::models::PaginatedResponse::new(
         templates.clone(),
         &params,
-        total_count.unwrap_or(0) as u64,
+        total_count as u64,
     ).pagination;
 
     let response = CompilationTemplatesListResponse {
@@ -382,11 +381,10 @@ pub async fn get_template(
     Path(template_id): Path<Uuid>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
-    let template = sqlx::query_as!(
-        CompilationTemplate,
-        "SELECT * FROM compilation_templates WHERE id = $1",
-        template_id
+    let template = sqlx::query_as::<_, CompilationTemplate>(
+        "SELECT * FROM compilation_templates WHERE id = $1"
     )
+    .bind(template_id)
     .fetch_optional(&state.db_pool)
     .await
     .map_err(AppError::Database)?;

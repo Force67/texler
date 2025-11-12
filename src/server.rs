@@ -7,7 +7,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use std::net::SocketAddr;
@@ -26,6 +26,9 @@ use tracing::{info, warn};
 pub struct AppState {
     pub config: Arc<Config>,
     pub db_pool: Arc<sqlx::PgPool>,
+    pub oidc_clients: Arc<std::collections::HashMap<String, authware::OidcClient>>,
+    pub jwt_service: Arc<crate::models::auth::JwtService>,
+    pub rate_limiter: Arc<crate::middleware::RateLimiter>,
 }
 
 /// Application router
@@ -91,6 +94,15 @@ fn auth_routes() -> Router<AppState> {
         .route("/forgot-password", post(crate::handlers::auth::forgot_password))
         .route("/reset-password", post(crate::handlers::auth::reset_password))
         .route("/verify-email", post(crate::handlers::auth::verify_email))
+        // OIDC routes
+        .route("/oidc/providers", get(crate::handlers::auth::get_oidc_providers))
+        .route("/oidc/login", post(crate::handlers::auth::oidc_login))
+        .route("/oidc/callback", get(crate::handlers::auth::oidc_callback))
+        .route("/oidc/callback", post(crate::handlers::auth::oidc_callback_post))
+        .layer(middleware::from_fn_with_state(
+            Arc::new(crate::middleware::RateLimiter::new()),
+            crate::middleware::auth_rate_limit_middleware,
+        ))
 }
 
 /// User routes
@@ -207,7 +219,7 @@ async fn request_id_middleware(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| uuid::Uuid::parse_str(value).ok());
 
-    let request_id = existing_id.unwrap_or(request_id);
+    let request_id = existing_id.map(RequestId).unwrap_or(request_id);
 
     let mut request = request;
     request.extensions_mut().insert(request_id);
@@ -218,7 +230,7 @@ async fn request_id_middleware(
 /// Authentication middleware
 async fn auth_middleware(
     State(state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
     // Skip authentication for health check and auth routes
@@ -234,14 +246,7 @@ async fn auth_middleware(
 
     if let Some(auth_header) = auth_header {
         if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            let jwt_service = crate::models::auth::JwtService::new(
-                &state.config.jwt.secret,
-                state.config.jwt.issuer.clone(),
-                state.config.jwt.expiration as i64,
-                state.config.jwt.refresh_expiration as i64,
-            )?;
-
-            let claims = jwt_service.verify_token(token)?;
+            let claims = state.jwt_service.verify_token_with_db(token, &state.db_pool).await?;
             let auth_context = crate::models::auth::AuthContext::from(claims);
 
             if auth_context.is_expired() {
@@ -258,7 +263,7 @@ async fn auth_middleware(
 
 /// Logging middleware
 async fn logging_middleware(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     request: Request,
     next: Next,
 ) -> Response {
@@ -315,12 +320,58 @@ async fn logging_middleware(
     response
 }
 
+impl AppState {
+    /// Create new application state with OIDC clients
+    pub async fn new(config: Config, db_pool: sqlx::PgPool) -> Result<Self, AppError> {
+        // Initialize JWT service
+        let jwt_service = crate::models::auth::JwtService::new(
+            &config.jwt.secret,
+            config.jwt.issuer.clone(),
+            config.jwt.expiration as i64,
+            config.jwt.refresh_expiration as i64,
+        )?;
+
+        // Initialize OIDC clients if enabled
+        let mut oidc_clients = std::collections::HashMap::new();
+
+        if config.oidc.enabled {
+            for provider in &config.oidc.providers {
+                // For now, only support GitHub
+                if provider.name == "github" {
+                    let oidc_client = authware::OidcClient::builder()
+                        .new(authware::OidcProvider::GitHub, provider.client_id.clone(), provider.redirect_uri.clone())
+                        .client_secret(provider.client_secret.clone())
+                        .scopes(provider.scopes.clone())
+                        .pkce(true)
+                        .build()
+                        .map_err(|e| AppError::Internal(format!("Failed to initialize GitHub OIDC client: {}", e)))?;
+
+                    oidc_clients.insert(provider.name.clone(), oidc_client);
+                    info!("Initialized GitHub OIDC client");
+                } else {
+                    warn!("OIDC provider '{}' not supported yet. Only GitHub is supported.", provider.name);
+                }
+            }
+        }
+
+        Ok(AppState {
+            config: Arc::new(config),
+            db_pool: Arc::new(db_pool),
+            oidc_clients: Arc::new(oidc_clients),
+            jwt_service: Arc::new(jwt_service),
+            rate_limiter: Arc::new(crate::middleware::RateLimiter::new()),
+        })
+    }
+}
+
+/// Create the application
+pub async fn create_app(state: AppState) -> Router {
+    create_router(state)
+}
+
 /// Start the web server
 pub async fn start_server(config: Config, db_pool: sqlx::PgPool) -> Result<(), AppError> {
-    let state = AppState {
-        config: Arc::new(config.clone()),
-        db_pool: Arc::new(db_pool),
-    };
+    let state = AppState::new(config.clone(), db_pool).await?;
 
     let app = create_router(state);
 

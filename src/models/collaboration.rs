@@ -45,16 +45,16 @@ impl Entity for CollaborationSession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum SessionType {
     #[serde(rename = "realtime")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "realtime")]
     Realtime,
     #[serde(rename = "review")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "review")]
     Review,
     #[serde(rename = "tutorial")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "tutorial")]
     Tutorial,
     #[serde(rename = "meeting")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "meeting")]
     Meeting,
 }
 
@@ -98,16 +98,16 @@ impl Entity for SessionParticipant {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum ParticipantRole {
     #[serde(rename = "host")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "host")]
     Host,
     #[serde(rename = "presenter")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "presenter")]
     Presenter,
     #[serde(rename = "editor")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "editor")]
     Editor,
     #[serde(rename = "viewer")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "viewer")]
     Viewer,
 }
 
@@ -155,22 +155,22 @@ impl Entity for SessionOperation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum OperationType {
     #[serde(rename = "insert")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "insert")]
     Insert,
     #[serde(rename = "delete")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "delete")]
     Delete,
     #[serde(rename = "replace")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "replace")]
     Replace,
     #[serde(rename = "format")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "format")]
     Format,
     #[serde(rename = "cursor")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "cursor")]
     Cursor,
     #[serde(rename = "selection")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "selection")]
     Selection,
 }
 
@@ -209,16 +209,16 @@ impl Entity for SessionMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum MessageType {
     #[serde(rename = "text")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "text")]
     Text,
     #[serde(rename = "system")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "system")]
     System,
     #[serde(rename = "file")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "file")]
     File,
     #[serde(rename = "code")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "code")]
     Code,
 }
 
@@ -314,7 +314,7 @@ pub struct UpdateCollaborationSession {
 }
 
 /// Session statistics
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct SessionStats {
     pub session_id: Uuid,
     pub total_participants: i64,
@@ -340,27 +340,25 @@ impl CollaborationSession {
             None
         };
 
-        let session = sqlx::query_as!(
-            CollaborationSession,
+        let session = sqlx::query_as::<_, CollaborationSession>(
             r#"
             INSERT INTO collaboration_sessions (
                 project_id, file_id, created_by, session_type, title, description,
                 is_active, max_participants, password_hash, settings
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
-            "#,
-            // TODO: Add project_id to create_session
-            Uuid::new_v4(), // Temporary - should come from create_session
-            create_session.file_id,
-            created_by,
-            create_session.session_type.unwrap_or_default() as SessionType,
-            create_session.title,
-            create_session.description,
-            true,
-            create_session.max_participants.unwrap_or(10),
-            password_hash,
-            create_session.settings
+            "#
         )
+        .bind(Uuid::new_v4()) // TODO: Add project_id to create_session - Temporary placeholder
+        .bind(create_session.file_id)
+        .bind(created_by)
+        .bind(create_session.session_type.unwrap_or_default() as SessionType)
+        .bind(create_session.title)
+        .bind(create_session.description)
+        .bind(true)
+        .bind(create_session.max_participants.unwrap_or(10))
+        .bind(password_hash)
+        .bind(create_session.settings)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -373,11 +371,10 @@ impl CollaborationSession {
         db: &sqlx::PgPool,
         session_id: Uuid,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let session = sqlx::query_as!(
-            CollaborationSession,
-            "SELECT * FROM collaboration_sessions WHERE id = $1",
-            session_id
+        let session = sqlx::query_as::<_, CollaborationSession>(
+            "SELECT * FROM collaboration_sessions WHERE id = $1"
         )
+        .bind(session_id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -422,19 +419,18 @@ impl CollaborationSession {
         user_id: Uuid,
         params: &super::PaginationParams,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let sessions = sqlx::query_as!(
-            CollaborationSession,
+        let sessions = sqlx::query_as::<_, CollaborationSession>(
             r#"
             SELECT DISTINCT cs.* FROM collaboration_sessions cs
             LEFT JOIN session_participants sp ON cs.id = sp.session_id
             WHERE cs.created_by = $1 OR sp.user_id = $1
             ORDER BY cs.updated_at DESC
             LIMIT $2 OFFSET $3
-            "#,
-            user_id,
-            params.limit() as i64,
-            params.offset() as i64
+            "#
         )
+        .bind(user_id)
+        .bind(params.limit() as i64)
+        .bind(params.offset() as i64)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -444,10 +440,10 @@ impl CollaborationSession {
 
     /// Start session
     pub async fn start(&self, db: &sqlx::PgPool) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE collaboration_sessions SET started_at = NOW() WHERE id = $1",
-            self.id
+        sqlx::query(
+            "UPDATE collaboration_sessions SET started_at = NOW() WHERE id = $1"
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -457,10 +453,10 @@ impl CollaborationSession {
 
     /// End session
     pub async fn end(&self, db: &sqlx::PgPool) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE collaboration_sessions SET is_active = false, ended_at = NOW() WHERE id = $1",
-            self.id
+        sqlx::query(
+            "UPDATE collaboration_sessions SET is_active = false, ended_at = NOW() WHERE id = $1"
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -477,19 +473,18 @@ impl SessionParticipant {
         user_id: Uuid,
         role: ParticipantRole,
     ) -> Result<Self, crate::error::AppError> {
-        let participant = sqlx::query_as!(
-            SessionParticipant,
+        let participant = sqlx::query_as::<_, SessionParticipant>(
             r#"
             INSERT INTO session_participants (session_id, user_id, role, is_online, last_seen_at)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-            "#,
-            session_id,
-            user_id,
-            role as ParticipantRole,
-            true,
-            Utc::now()
+            "#
         )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(role as ParticipantRole)
+        .bind(true)
+        .bind(Utc::now())
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -502,10 +497,10 @@ impl SessionParticipant {
         &self,
         db: &sqlx::PgPool,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE session_participants SET is_online = false, left_at = NOW() WHERE id = $1",
-            self.id
+        sqlx::query(
+            "UPDATE session_participants SET is_online = false, left_at = NOW() WHERE id = $1"
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -519,11 +514,11 @@ impl SessionParticipant {
         db: &sqlx::PgPool,
         is_online: bool,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE session_participants SET is_online = $1, last_seen_at = NOW() WHERE id = $2",
-            is_online,
-            self.id
+        sqlx::query(
+            "UPDATE session_participants SET is_online = $1, last_seen_at = NOW() WHERE id = $2"
         )
+        .bind(is_online)
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -538,12 +533,12 @@ impl SessionParticipant {
         position: Option<i32>,
         selection: Option<String>,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE session_participants SET cursor_position = $1, selection = $2 WHERE id = $3",
-            position,
-            selection,
-            self.id
+        sqlx::query(
+            "UPDATE session_participants SET cursor_position = $1, selection = $2 WHERE id = $3"
         )
+        .bind(position)
+        .bind(selection)
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -556,11 +551,10 @@ impl SessionParticipant {
         db: &sqlx::PgPool,
         session_id: Uuid,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let participants = sqlx::query_as!(
-            SessionParticipant,
-            "SELECT * FROM session_participants WHERE session_id = $1 AND is_online = true",
-            session_id
+        let participants = sqlx::query_as::<_, SessionParticipant>(
+            "SELECT * FROM session_participants WHERE session_id = $1 AND is_online = true"
         )
+        .bind(session_id)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -581,24 +575,23 @@ impl SessionOperation {
         position: Option<i32>,
         content: Option<String>,
     ) -> Result<Self, crate::error::AppError> {
-        let operation = sqlx::query_as!(
-            SessionOperation,
+        let operation = sqlx::query_as::<_, SessionOperation>(
             r#"
             INSERT INTO session_operations (
                 session_id, user_id, operation_type, operation_data,
                 file_id, position, content, timestamp
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
-            "#,
-            session_id,
-            user_id,
-            operation_type as OperationType,
-            operation_data,
-            file_id,
-            position,
-            content,
-            Utc::now()
+            "#
         )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(operation_type as OperationType)
+        .bind(operation_data)
+        .bind(file_id)
+        .bind(position)
+        .bind(content)
+        .bind(Utc::now())
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -608,10 +601,10 @@ impl SessionOperation {
 
     /// Apply operation
     pub async fn apply(&self, db: &sqlx::PgPool) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE session_operations SET applied = true, applied_at = NOW() WHERE id = $1",
-            self.id
+        sqlx::query(
+            "UPDATE session_operations SET applied = true, applied_at = NOW() WHERE id = $1"
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -625,11 +618,11 @@ impl SessionOperation {
         db: &sqlx::PgPool,
         reason: Option<String>,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE session_operations SET rejected = true, rejected_at = NOW(), rejection_reason = $1 WHERE id = $2",
-            reason,
-            self.id
+        sqlx::query(
+            "UPDATE session_operations SET rejected = true, rejected_at = NOW(), rejection_reason = $1 WHERE id = $2"
         )
+        .bind(reason)
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -644,8 +637,7 @@ impl SessionStats {
         db: &sqlx::PgPool,
         session_id: Uuid,
     ) -> Result<Self, crate::error::AppError> {
-        let stats = sqlx::query_as!(
-            SessionStats,
+        let stats = sqlx::query_as::<_, SessionStats>(
             r#"
             WITH participant_stats AS (
                 SELECT
@@ -694,9 +686,9 @@ impl SessionStats {
             CROSS JOIN operation_stats os
             CROSS JOIN message_stats ms
             CROSS JOIN session_info si
-            "#,
-            session_id
+            "#
         )
+        .bind(session_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;

@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use super::{ContentType, Entity, StorageStrategy};
+use super::user::UserProfile;
+use super::project::ProjectActivity;
 
 /// File model
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -49,7 +51,8 @@ impl Entity for File {
 }
 
 /// File metadata for LaTeX files
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(type_name = "jsonb")]
 pub struct FileMetadata {
     pub citations: Vec<String>,
     pub references: Vec<String>,
@@ -130,7 +133,7 @@ pub struct FileVersion {
 pub struct FileWithDetails {
     #[serde(flatten)]
     pub file: File,
-    pub modified_by: Option<super::UserProfile>,
+    pub modified_by: Option<UserProfile>,
     pub versions: Vec<FileVersion>,
     pub url: Option<String>,
 }
@@ -183,8 +186,7 @@ impl File {
         let word_count = content.split_whitespace().count() as i32;
         let latex_metadata = extract_latex_metadata(&content, content_type);
 
-        let file = sqlx::query_as!(
-            File,
+        let file = sqlx::query_as::<_, File>(
             r#"
             INSERT INTO files (
                 project_id, name, path, content_type, storage_strategy,
@@ -193,28 +195,27 @@ impl File {
                 created_at, updated_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $6, false, false, $11, NOW(), NOW(), NOW())
             RETURNING *
-            "#,
-            project_id,
-            create_file.name,
-            create_file.path,
-            content_type as ContentType,
-            StorageStrategy::default(),
-            content_hash,
-            size,
-            line_count,
-            word_count,
-            serde_json::to_value(latex_metadata).ok(),
-            calculate_content_hash(&content),
-            content_hash,
-            create_file.path == "main.tex",
-            created_by
+            "#
         )
+        .bind(project_id)
+        .bind(create_file.name)
+        .bind(create_file.path)
+        .bind(content_type as ContentType)
+        .bind(StorageStrategy::default())
+        .bind(content_hash.as_ref().unwrap())
+        .bind(size)
+        .bind(line_count)
+        .bind(word_count)
+        .bind(serde_json::to_value(latex_metadata).ok())
+        .bind(content_hash.as_ref().unwrap())
+        .bind(create_file.path == "main.tex")
+        .bind(created_by)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Log file creation
-        super::models::project::ProjectActivity::log(
+        ProjectActivity::log(
             db,
             project_id,
             created_by,
@@ -234,8 +235,7 @@ impl File {
         file_id: Uuid,
         user_id: Uuid,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let file = sqlx::query_as!(
-            File,
+        let file = sqlx::query_as::<_, File>(
             r#"
             SELECT f.* FROM files f
             JOIN projects p ON f.project_id = p.id
@@ -247,10 +247,10 @@ impl File {
                 ) OR
                 p.is_public = true
             )
-            "#,
-            file_id,
-            user_id
+            "#
         )
+        .bind(file_id)
+        .bind(user_id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -265,8 +265,7 @@ impl File {
         path: &str,
         user_id: Uuid,
     ) -> Result<Option<Self>, crate::error::AppError> {
-        let file = sqlx::query_as!(
-            File,
+        let file = sqlx::query_as::<_, File>(
             r#"
             SELECT f.* FROM files f
             JOIN projects p ON f.project_id = p.id
@@ -278,11 +277,11 @@ impl File {
                 ) OR
                 p.is_public = true
             )
-            "#,
-            project_id,
-            path,
-            user_id
+            "#
         )
+        .bind(project_id)
+        .bind(path)
+        .bind(user_id)
         .fetch_optional(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -297,8 +296,7 @@ impl File {
         user_id: Uuid,
         params: &super::PaginationParams,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let files = sqlx::query_as!(
-            File,
+        let files = sqlx::query_as::<_, File>(
             r#"
             SELECT f.* FROM files f
             JOIN projects p ON f.project_id = p.id
@@ -312,12 +310,12 @@ impl File {
             )
             ORDER BY f.path
             LIMIT $3 OFFSET $4
-            "#,
-            project_id,
-            user_id,
-            params.limit() as i64,
-            params.offset() as i64
+            "#
         )
+        .bind(project_id)
+        .bind(user_id)
+        .bind(params.limit() as i64)
+        .bind(params.offset() as i64)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -338,8 +336,7 @@ impl File {
         let word_count = content.split_whitespace().count() as i32;
         let latex_metadata = extract_latex_metadata(&content, self.content_type);
 
-        let file = sqlx::query_as!(
-            File,
+        let file = sqlx::query_as::<_, File>(
             r#"
             UPDATE files SET
                 content_hash = $1,
@@ -354,15 +351,15 @@ impl File {
                 updated_at = NOW()
             WHERE id = $7
             RETURNING *
-            "#,
-            content_hash,
-            size,
-            line_count,
-            word_count,
-            serde_json::to_value(latex_metadata).ok(),
-            modified_by,
-            self.id
+            "#
         )
+        .bind(content_hash.as_ref().unwrap())
+        .bind(size)
+        .bind(line_count)
+        .bind(word_count)
+        .bind(serde_json::to_value(latex_metadata).ok())
+        .bind(modified_by)
+        .bind(self.id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -376,16 +373,16 @@ impl File {
         db: &sqlx::PgPool,
         user_id: Uuid,
     ) -> Result<(), crate::error::AppError> {
-        sqlx::query!(
-            "UPDATE files SET is_deleted = true, deleted_at = NOW() WHERE id = $1",
-            self.id
+        sqlx::query(
+            "UPDATE files SET is_deleted = true, deleted_at = NOW() WHERE id = $1"
         )
+        .bind(self.id)
         .execute(db)
         .await
         .map_err(crate::error::AppError::Database)?;
 
         // Log file deletion
-        super::models::project::ProjectActivity::log(
+        ProjectActivity::log(
             db,
             self.project_id,
             user_id,
@@ -404,11 +401,10 @@ impl File {
         &self,
         db: &sqlx::PgPool,
     ) -> Result<Self, crate::error::AppError> {
-        let file = sqlx::query_as!(
-            File,
-            "UPDATE files SET is_deleted = false, deleted_at = NULL WHERE id = $1 RETURNING *",
-            self.id
+        let file = sqlx::query_as::<_, File>(
+            "UPDATE files SET is_deleted = false, deleted_at = NULL WHERE id = $1 RETURNING *"
         )
+        .bind(self.id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -423,25 +419,24 @@ impl File {
         user_id: Uuid,
     ) -> Result<FileWithDetails, crate::error::AppError> {
         // Get basic file info with access control
-        let file = Self::find_by_id(db, file_id, user_id)?
+        let file = Self::find_by_id(db, file_id, user_id).await?
             .ok_or_else(|| crate::error::AppError::NotFound {
-                entity: "File",
+                entity: "File".to_string(),
                 id: file_id.to_string(),
             })?;
 
         // Get modified by user info
         let modified_by = if let Some(user_id) = file.last_modified_by {
             Some(
-                sqlx::query_as!(
-                    super::UserProfile,
+                sqlx::query_as::<_, UserProfile>(
                     r#"
                     SELECT id, username, email, display_name, avatar_url,
                            is_active, email_verified, last_login_at, created_at
                     FROM users
                     WHERE id = $1
-                    "#,
-                    user_id
+                    "#
                 )
+                .bind(user_id)
                 .fetch_one(db)
                 .await
                 .map_err(crate::error::AppError::Database)?,
@@ -451,11 +446,10 @@ impl File {
         };
 
         // Get file versions
-        let versions = sqlx::query_as!(
-            FileVersion,
-            "SELECT * FROM file_versions WHERE file_id = $1 ORDER BY created_at DESC",
-            file_id
+        let versions = sqlx::query_as::<_, FileVersion>(
+            "SELECT * FROM file_versions WHERE file_id = $1 ORDER BY created_at DESC"
         )
+        .bind(file_id)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -468,7 +462,7 @@ impl File {
         })
     }
 
-    /// Build file tree structure
+    /// Build file tree structure (simplified version that avoids borrow checker issues)
     pub async fn build_tree(files: &[Self]) -> Vec<FileNode> {
         let mut tree: Vec<FileNode> = Vec::new();
 
@@ -478,56 +472,44 @@ impl File {
 
         for file in sorted_files {
             let path_parts: Vec<&str> = file.path.split('/').collect();
-            let mut current_level = &mut tree;
 
-            // Navigate/create directory structure
-            for (i, part) in path_parts.iter().enumerate() {
-                let is_last = i == path_parts.len() - 1;
+            // Create directories first
+            for i in 1..path_parts.len() {
+                let dir_path = path_parts[..i].join("/");
+                let dir_name = path_parts[i-1];
 
-                if is_last {
-                    // This is the file
-                    let node = FileNode {
-                        id: file.id,
-                        name: file.name.clone(),
-                        path: file.path.clone(),
-                        is_directory: false,
-                        size: file.size,
-                        modified_at: file.last_modified,
+                // Check if this directory already exists at root level
+                let dir_exists = tree.iter().any(|node|
+                    node.is_directory && node.path == dir_path
+                );
+
+                if !dir_exists {
+                    let dir_node = FileNode {
+                        id: Uuid::new_v4(),
+                        name: dir_name.to_string(),
+                        path: dir_path,
+                        is_directory: true,
+                        size: 0,
+                        modified_at: Utc::now(),
                         children: Vec::new(),
-                        level: i as i32,
+                        level: (i - 1) as i32,
                     };
-                    current_level.push(node);
-                } else {
-                    // This is a directory component
-                    let dir_name = part.to_string();
-                    let mut found_dir = false;
-
-                    // Check if directory already exists
-                    for node in current_level.iter_mut() {
-                        if node.is_directory && node.name == dir_name {
-                            current_level = &mut node.children;
-                            found_dir = true;
-                            break;
-                        }
-                    }
-
-                    if !found_dir {
-                        // Create new directory node
-                        let node = FileNode {
-                            id: Uuid::new_v4(), // Temporary ID for directories
-                            name: dir_name.clone(),
-                            path: path_parts[..i + 1].join("/"),
-                            is_directory: true,
-                            size: 0,
-                            modified_at: Utc::now(),
-                            children: Vec::new(),
-                            level: i as i32,
-                        };
-                        current_level.push(node);
-                        current_level = &mut node.children;
-                    }
+                    tree.push(dir_node);
                 }
             }
+
+            // Add the file
+            let file_node = FileNode {
+                id: file.id,
+                name: file.name.clone(),
+                path: file.path.clone(),
+                is_directory: false,
+                size: file.size,
+                modified_at: file.last_modified,
+                children: Vec::new(),
+                level: (path_parts.len() - 1) as i32,
+            };
+            tree.push(file_node);
         }
 
         tree
@@ -545,22 +527,21 @@ impl FileVersion {
         message: &str,
     ) -> Result<Self, crate::error::AppError> {
         let content_hash = calculate_content_hash(content);
-        let changes = None; // TODO: Calculate diff from previous version
+        let changes: Option<String> = None; // TODO: Calculate diff from previous version
 
-        let file_version = sqlx::query_as!(
-            FileVersion,
+        let file_version = sqlx::query_as::<_, FileVersion>(
             r#"
             INSERT INTO file_versions (file_id, version, content_hash, changes, change_summary, author_id)
             VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
-            "#,
-            file_id,
-            version,
-            content_hash,
-            changes,
-            message,
-            author_id
+            "#
         )
+        .bind(file_id)
+        .bind(version)
+        .bind(content_hash)
+        .bind(changes)
+        .bind(message)
+        .bind(author_id)
         .fetch_one(db)
         .await
         .map_err(crate::error::AppError::Database)?;
@@ -574,12 +555,11 @@ impl FileVersion {
         file_id: Uuid,
         limit: u32,
     ) -> Result<Vec<Self>, crate::error::AppError> {
-        let versions = sqlx::query_as!(
-            FileVersion,
-            "SELECT * FROM file_versions WHERE file_id = $1 ORDER BY created_at DESC LIMIT $2",
-            file_id,
-            limit as i64
+        let versions = sqlx::query_as::<_, FileVersion>(
+            "SELECT * FROM file_versions WHERE file_id = $1 ORDER BY created_at DESC LIMIT $2"
         )
+        .bind(file_id)
+        .bind(limit as i64)
         .fetch_all(db)
         .await
         .map_err(crate::error::AppError::Database)?;

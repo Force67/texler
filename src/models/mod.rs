@@ -11,6 +11,9 @@ pub mod file;
 pub mod collaboration;
 pub mod compilation;
 pub mod auth;
+pub mod token_blacklist;
+pub mod password_reset;
+pub mod email_verification;
 
 /// Common trait for database entities
 pub trait Entity {
@@ -150,16 +153,16 @@ pub struct ErrorInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum ContentType {
     #[serde(rename = "latex")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "latex")]
     Latex,
     #[serde(rename = "bibliography")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "bibliography")]
     Bibliography,
     #[serde(rename = "image")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "image")]
     Image,
     #[serde(rename = "other")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "other")]
     Other,
 }
 
@@ -173,13 +176,13 @@ impl Default for ContentType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum StorageStrategy {
     #[serde(rename = "inline")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "inline")]
     Inline,
     #[serde(rename = "toast")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "toast")]
     Toast,
     #[serde(rename = "external")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "external")]
     External,
 }
 
@@ -193,16 +196,16 @@ impl Default for StorageStrategy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum UserRole {
     #[serde(rename = "owner")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "owner")]
     Owner,
     #[serde(rename = "maintainer")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "maintainer")]
     Maintainer,
     #[serde(rename = "collaborator")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "collaborator")]
     Collaborator,
     #[serde(rename = "viewer")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "viewer")]
     Viewer,
 }
 
@@ -210,22 +213,22 @@ pub enum UserRole {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum CompilationStatus {
     #[serde(rename = "never")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "never")]
     Never,
     #[serde(rename = "pending")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "pending")]
     Pending,
     #[serde(rename = "running")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "running")]
     Running,
     #[serde(rename = "success")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "success")]
     Success,
     #[serde(rename = "error")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "error")]
     Error,
     #[serde(rename = "cancelled")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "cancelled")]
     Cancelled,
 }
 
@@ -239,13 +242,13 @@ impl Default for CompilationStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum LatexEngine {
     #[serde(rename = "pdflatex")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "pdflatex")]
     Pdflatex,
     #[serde(rename = "xelatex")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "xelatex")]
     Xelatex,
     #[serde(rename = "lualatex")]
-    #[sqlx(type_name = "text")]
+    #[sqlx(rename = "lualatex")]
     Lualatex,
 }
 

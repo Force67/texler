@@ -1,15 +1,17 @@
 //! Authentication request handlers
 
 use crate::error::AppError;
-use crate::models::auth::{JwtService, PasswordUtils, TokenPair, PasswordResetRequest, EmailVerificationRequest};
-use crate::models::user::{CreateUser, User, UserProfile, LoginRequest, LoginResponse};
+use crate::server::AppState;
+use crate::models::auth::PasswordUtils;
+use crate::models::user::{CreateUser, User, UserProfile, LoginRequest, LoginResponse, OidcLoginRequest, OidcCallbackRequest};
 use axum::{
-    extract::{State, Json},
+    extract::{State, Json, Query},
     http::StatusCode,
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use std::collections::HashMap;
 
 /// User registration request
 #[derive(Debug, Deserialize)]
@@ -58,27 +60,20 @@ pub struct LogoutRequest {
     pub refresh_token: String,
 }
 
-/// Application state for auth handlers
-#[derive(Clone)]
-pub struct AuthState {
-    pub db_pool: sqlx::PgPool,
-    pub jwt_service: JwtService,
-}
-
 /// Register a new user
 pub async fn register(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Validate input
     if payload.username.len() < 3 {
-        return Err(AppError::Validation(
+        return Err(AppError::BadRequest(
             "Username must be at least 3 characters long".to_string(),
         ));
     }
 
     if !payload.email.contains('@') {
-        return Err(AppError::Validation(
+        return Err(AppError::BadRequest(
             "Invalid email address".to_string(),
         ));
     }
@@ -115,13 +110,13 @@ pub async fn register(
     let token_pair = state.jwt_service.generate_token_pair(&user, vec![])?;
 
     // Create email verification request
-    let _verification = EmailVerificationRequest::new(
+    let _verification = crate::models::email_verification::EmailVerificationService::create_verification(
+        &state.db_pool,
         user.email.clone(),
         user.id,
-        24, // 24 hours expiration
-    );
+    ).await?;
 
-    // TODO: Send verification email
+    // TODO: Send verification email with verification.token
 
     let response = RegisterResponse {
         user: user_profile,
@@ -140,7 +135,7 @@ pub async fn register(
 
 /// Login user
 pub async fn login(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Find user by email
@@ -174,7 +169,7 @@ pub async fn login(
 
 /// Refresh access token
 pub async fn refresh(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     Json(payload): Json<RefreshTokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Verify refresh token
@@ -200,10 +195,29 @@ pub async fn refresh(
 
 /// Logout user
 pub async fn logout(
-    State(_state): State<AuthState>,
-    Json(_payload): Json<LogoutRequest>,
+    State(state): State<AppState>,
+    Json(payload): Json<LogoutRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // TODO: Implement token blacklisting or refresh token invalidation
+    use crate::models::token_blacklist::TokenBlacklistService;
+
+    // Verify the refresh token
+    let claims = state.jwt_service.verify_token(&payload.refresh_token)?;
+    let user_id = uuid::Uuid::parse_str(&claims.sub)
+        .map_err(|_| AppError::Authentication("Invalid user ID in token".to_string()))?;
+
+    // Blacklist the refresh token
+    let expires_at = chrono::DateTime::from_timestamp(claims.exp, 0)
+        .unwrap_or_else(|| chrono::Utc::now() + chrono::Duration::hours(24));
+
+    TokenBlacklistService::blacklist_token(
+        &state.db_pool,
+        claims.jti,
+        "refresh".to_string(),
+        user_id,
+        expires_at,
+        "logout".to_string(),
+    ).await?;
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Logged out successfully"
@@ -212,24 +226,21 @@ pub async fn logout(
 
 /// Request password reset
 pub async fn forgot_password(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     Json(payload): Json<PasswordResetEmailRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Find user by email
-    let user = User::find_by_email(&state.db_pool, &payload.email)
-        .await?;
+    use crate::models::password_reset::PasswordResetService;
 
-    // Always return success to prevent email enumeration
-    if let Some(user) = user {
-        // Create password reset request
-        let reset_request = PasswordResetRequest::new(user.email.clone(), 1); // 1 hour expiration
+    // Create password reset request (returns None if user doesn't exist)
+    let reset_request = PasswordResetService::request_reset(&state.db_pool, payload.email.clone()).await?;
 
-        // TODO: Save reset request to database
-        // TODO: Send password reset email
-
-        tracing::info!("Password reset requested for user: {}", user.email);
+    if let Some(reset_req) = reset_request {
+        // TODO: Send password reset email with reset_req.token
+        tracing::info!("Password reset requested for user: {}", reset_req.email);
+        tracing::debug!("Reset token: {}", reset_req.token);
     }
 
+    // Always return success to prevent email enumeration
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "If an account with that email exists, a password reset link has been sent."
@@ -238,17 +249,14 @@ pub async fn forgot_password(
 
 /// Confirm password reset
 pub async fn reset_password(
-    State(state): State<AuthState>,
+    State(state): State<AppState>,
     Json(payload): Json<PasswordResetConfirmRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Validate password strength
-    PasswordUtils::validate_password_strength(&payload.new_password)?;
+    use crate::models::password_reset::PasswordResetService;
 
-    // TODO: Verify reset token and get user
-    // TODO: Update user password
-    // TODO: Invalidate reset token
+    // Confirm reset and update password
+    PasswordResetService::confirm_reset(&state.db_pool, &payload.token, payload.new_password.clone()).await?;
 
-    // For now, this is a placeholder implementation
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Password reset successfully"
@@ -257,16 +265,94 @@ pub async fn reset_password(
 
 /// Verify email address
 pub async fn verify_email(
-    State(_state): State<AuthState>,
+    State(state): State<AppState>,
     Json(payload): Json<VerifyEmailRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // TODO: Verify email verification token
-    // TODO: Mark user email as verified
+    use crate::models::email_verification::EmailVerificationService;
 
-    // For now, this is a placeholder implementation
+    // Confirm email verification
+    EmailVerificationService::confirm_verification(&state.db_pool, &payload.token).await?;
+
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "Email verified successfully"
+    })))
+}
+
+/// Get OIDC providers
+pub async fn get_oidc_providers(
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, AppError> {
+    if !state.config.oidc.enabled {
+        return Err(AppError::NotFound {
+            entity: "OIDC".to_string(),
+            id: "disabled".to_string(),
+        });
+    }
+
+    let providers: Vec<_> = state.config.oidc.providers.iter()
+        .map(|p| serde_json::json!({
+            "name": p.name,
+            "display_name": p.display_name,
+        }))
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "enabled": true,
+            "providers": providers
+        }
+    })))
+}
+
+/// Complete OIDC login flow using authware
+pub async fn oidc_login(
+    State(state): State<AppState>,
+    Json(payload): Json<OidcLoginRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    if !state.config.oidc.enabled {
+        return Err(AppError::NotFound {
+            entity: "OIDC".to_string(),
+            id: "disabled".to_string(),
+        });
+    }
+
+    let _oidc_client = state.oidc_clients.get(&payload.provider)
+        .ok_or_else(|| AppError::NotFound {
+            entity: "OIDC Client".to_string(),
+            id: payload.provider.clone(),
+        })?;
+
+    // TODO: Implement proper OIDC flow with authware
+    // For now, return a placeholder implementation
+    Ok(Json(serde_json::json!({
+        "success": false,
+        "message": "OIDC implementation pending authware crate integration"
+    })))
+}
+
+/// OIDC callback handler using authware
+pub async fn oidc_callback(
+    State(_state): State<AppState>,
+    _params: Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse, AppError> {
+    // TODO: Implement proper OIDC callback handling with authware
+    Ok(Json(serde_json::json!({
+        "success": false,
+        "message": "OIDC implementation pending authware crate integration"
+    })))
+}
+
+/// OIDC callback handler (POST version for mobile apps)
+pub async fn oidc_callback_post(
+    State(_state): State<AppState>,
+    _payload: Json<OidcCallbackRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    // TODO: Implement proper OIDC callback handling with authware
+    Ok(Json(serde_json::json!({
+        "success": false,
+        "message": "OIDC implementation pending authware crate integration"
     })))
 }
 

@@ -75,6 +75,10 @@ pub enum AppError {
     #[error("JWT error: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
 
+    /// Bcrypt errors
+    #[error("Bcrypt error: {0}")]
+    Bcrypt(String),
+
     /// Rate limiting errors
     #[error("Rate limit exceeded")]
     RateLimit,
@@ -144,6 +148,7 @@ impl AppError {
             AppError::RateLimit => "RATE_LIMIT_EXCEEDED",
             AppError::BadRequest(_) => "BAD_REQUEST",
             AppError::Jwt(_) => "INVALID_TOKEN",
+            AppError::Bcrypt(_) => "BCRYPT_ERROR",
             AppError::Database(_) => "DATABASE_ERROR",
             AppError::Redis(_) => "REDIS_ERROR",
             AppError::Compilation(_) => "COMPILATION_ERROR",
@@ -153,6 +158,8 @@ impl AppError {
             AppError::Internal(_) => "INTERNAL_ERROR",
             AppError::Config(_) => "CONFIGURATION_ERROR",
             AppError::Job(_) => "JOB_ERROR",
+            AppError::Server(_) => "SERVER_ERROR",
+            AppError::Storage(_) => "STORAGE_ERROR",
         }
     }
 
@@ -225,6 +232,13 @@ pub trait IntoAppError<T> {
 impl<T> IntoAppError<T> for Option<T> {
     fn into_app_error(self) -> Result<T> {
         self.ok_or_else(|| AppError::Internal("Expected Some(T), got None".to_string()))
+    }
+}
+
+/// Convert bcrypt errors to AppError
+impl From<bcrypt::BcryptError> for AppError {
+    fn from(err: bcrypt::BcryptError) -> Self {
+        AppError::Bcrypt(err.to_string())
     }
 }
 

@@ -79,21 +79,21 @@ pub struct CollaborationState {
 
 /// List collaboration sessions
 pub async fn list_sessions(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Query(params): Query<crate::models::PaginationParams>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let sessions = CollaborationSession::list_for_user(&state.db_pool, auth_user.user_id, &params).await?;
 
     // Get total count for pagination
-    let total_count = sqlx::query_scalar!(
+    let total_count = sqlx::query_scalar::<_, i64>(
         r#"
         SELECT COUNT(DISTINCT cs.id) FROM collaboration_sessions cs
         LEFT JOIN session_participants sp ON cs.id = sp.session_id
         WHERE cs.created_by = $1 OR sp.user_id = $1
-        "#,
-        auth_user.user_id
+        "#
     )
+    .bind(auth_user.user_id)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -101,7 +101,7 @@ pub async fn list_sessions(
     let pagination_info = crate::models::PaginatedResponse::new(
         sessions.clone(),
         &params,
-        total_count.unwrap_or(0) as u64,
+        total_count as u64,
     ).pagination;
 
     let response = SessionsListResponse {
@@ -117,7 +117,7 @@ pub async fn list_sessions(
 
 /// Create a new collaboration session
 pub async fn create_session(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Json(payload): Json<CreateCollaborationSession>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -140,14 +140,14 @@ pub async fn create_session(
 
 /// Get collaboration session details
 pub async fn get_session(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -175,7 +175,7 @@ pub async fn get_session(
 
 /// Update collaboration session
 pub async fn update_session(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     Json(payload): Json<UpdateCollaborationSession>,
     auth_user: axum::Extension<AuthContext>,
@@ -184,7 +184,7 @@ pub async fn update_session(
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -213,7 +213,7 @@ pub async fn update_session(
 
 /// Delete collaboration session
 pub async fn delete_session(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -221,7 +221,7 @@ pub async fn delete_session(
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -242,7 +242,7 @@ pub async fn delete_session(
 
 /// Join collaboration session
 pub async fn join_session(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     Json(payload): Json<JoinSessionRequest>,
     auth_user: axum::Extension<AuthContext>,
@@ -268,7 +268,7 @@ pub async fn join_session(
 
 /// Leave collaboration session
 pub async fn leave_session(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -277,7 +277,7 @@ pub async fn leave_session(
     let participant = participants.iter()
         .find(|p| p.user_id == auth_user.user_id)
         .ok_or_else(|| AppError::NotFound {
-            entity: "SessionParticipant",
+            entity: "SessionParticipant".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -291,7 +291,7 @@ pub async fn leave_session(
 
 /// Get session participants
 pub async fn get_participants(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -299,7 +299,7 @@ pub async fn get_participants(
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -323,7 +323,7 @@ pub async fn get_participants(
 
 /// Create operation in session
 pub async fn create_operation(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     Json(payload): Json<SessionOperationRequest>,
     auth_user: axum::Extension<AuthContext>,
@@ -364,7 +364,7 @@ pub async fn create_operation(
 
 /// Get session messages
 pub async fn get_messages(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     Query(params): Query<crate::models::PaginationParams>,
     auth_user: axum::Extension<AuthContext>,
@@ -373,7 +373,7 @@ pub async fn get_messages(
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -387,18 +387,17 @@ pub async fn get_messages(
         ));
     }
 
-    let messages = sqlx::query_as!(
-        SessionMessage,
+    let messages = sqlx::query_as::<_, SessionMessage>(
         r#"
         SELECT * FROM session_messages
         WHERE session_id = $1 AND deleted = false
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
-        "#,
-        session_id,
-        params.limit() as i64,
-        params.offset() as i64
+        "#
     )
+    .bind(session_id)
+    .bind(params.limit() as i64)
+    .bind(params.offset() as i64)
     .fetch_all(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -413,7 +412,7 @@ pub async fn get_messages(
 
 /// Send message to session
 pub async fn send_message(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     Json(payload): Json<SessionMessageRequest>,
     auth_user: axum::Extension<AuthContext>,
@@ -426,20 +425,19 @@ pub async fn send_message(
         ));
     }
 
-    let message = sqlx::query_as!(
-        SessionMessage,
+    let message = sqlx::query_as::<_, SessionMessage>(
         r#"
         INSERT INTO session_messages (session_id, user_id, message_type, content, reply_to, created_at)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
-        "#,
-        session_id,
-        auth_user.user_id,
-        payload.message_type as MessageType,
-        payload.content,
-        payload.reply_to,
-        chrono::Utc::now()
+        "#
     )
+    .bind(session_id)
+    .bind(auth_user.user_id)
+    .bind(payload.message_type as MessageType)
+    .bind(payload.content)
+    .bind(payload.reply_to)
+    .bind(chrono::Utc::now())
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
@@ -454,7 +452,7 @@ pub async fn send_message(
 
 /// Invite participant to session
 pub async fn invite_participant(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     Json(payload): Json<SessionInvitationRequest>,
     auth_user: axum::Extension<AuthContext>,
@@ -463,7 +461,7 @@ pub async fn invite_participant(
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -503,7 +501,7 @@ pub async fn invite_participant(
 
 /// Get session statistics
 pub async fn get_session_stats(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -511,7 +509,7 @@ pub async fn get_session_stats(
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "CollaborationSession",
+            entity: "CollaborationSession".to_string(),
             id: session_id.to_string(),
         })?;
 
@@ -539,7 +537,7 @@ pub async fn get_session_stats(
 
 /// Get invitation details
 pub async fn get_invitation(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(token): Path<String>,
     _auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -552,7 +550,7 @@ pub async fn get_invitation(
 
 /// Accept invitation
 pub async fn accept_invitation(
-    State(state): State<CollaborationState>,
+    State(state): State<crate::server::AppState>,
     Path(token): Path<String>,
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -570,7 +568,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_session_creation() {
-        let state = CollaborationState {
+        let state = crate::handlers::collaboration::CollaborationState {
             db_pool: PgPool::connect("postgresql://test").await.unwrap(),
             config: crate::config::Config::load().unwrap(),
         };
