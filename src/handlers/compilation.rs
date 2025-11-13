@@ -12,6 +12,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use crate::server::AppState;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -61,16 +62,9 @@ pub struct CancelJobRequest {
     pub reason: Option<String>,
 }
 
-/// Application state for compilation handlers
-#[derive(Clone)]
-pub struct CompilationState {
-    pub db_pool: sqlx::PgPool,
-    pub config: crate::config::Config,
-}
-
 /// List compilation jobs for the user
 pub async fn list_jobs(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Query(params): Query<crate::models::PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -110,9 +104,9 @@ pub async fn list_jobs(
 
 /// Create a new compilation job
 pub async fn create_job(
-    State(state): State<CompilationState>,
-    Json(payload): Json<CreateJobRequest>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<CreateJobRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check project access
     if !crate::models::project::Project::has_access(&state.db_pool, payload.project_id, auth_user.user_id).await? {
@@ -159,7 +153,7 @@ pub async fn create_job(
 
 /// Get compilation job details
 pub async fn get_job(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -182,10 +176,10 @@ pub async fn get_job(
 
 /// Cancel compilation job
 pub async fn cancel_job(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
-    Json(_payload): Json<CancelJobRequest>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(_payload): Json<CancelJobRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let job = CompilationJob::find_by_id(&state.db_pool, job_id, auth_user.user_id)
         .await?
@@ -205,7 +199,7 @@ pub async fn cancel_job(
             .await?;
         }
         _ => {
-            return Err(AppError::Validation(
+            return Err(AppError::BadRequest(
                 "Cannot cancel a completed job".to_string(),
             ));
         }
@@ -219,7 +213,7 @@ pub async fn cancel_job(
 
 /// Get compilation job logs
 pub async fn get_job_logs(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -247,7 +241,7 @@ pub async fn get_job_logs(
 
 /// Get compilation job artifacts
 pub async fn get_job_artifacts(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Path(job_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -275,7 +269,7 @@ pub async fn get_job_artifacts(
 
 /// Get compilation queue status
 pub async fn get_queue_status(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let queue_length = crate::models::compilation::CompilationQueue::get_queue_length(&state.db_pool).await?;
@@ -303,9 +297,9 @@ pub async fn get_queue_status(
 
     let response = QueueStatusResponse {
         queue_length,
-        processing_jobs: processing_jobs.unwrap_or(0),
+        processing_jobs,
         average_wait_time_minutes,
-        workers_online: workers_online.unwrap_or(0),
+        workers_online,
     };
 
     Ok(Json(serde_json::json!({
@@ -316,7 +310,7 @@ pub async fn get_queue_status(
 
 /// List compilation templates
 pub async fn list_templates(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Query(params): Query<crate::models::PaginationParams>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -361,9 +355,9 @@ pub async fn list_templates(
 
 /// Create compilation template
 pub async fn create_template(
-    State(state): State<CompilationState>,
-    Json(payload): Json<CreateCompilationTemplate>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<CreateCompilationTemplate>,
 ) -> Result<impl IntoResponse, AppError> {
     let template = CompilationTemplate::create(&state.db_pool, auth_user.user_id, payload).await?;
 
@@ -377,7 +371,7 @@ pub async fn create_template(
 
 /// Get compilation template details
 pub async fn get_template(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Path(template_id): Path<Uuid>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -398,7 +392,7 @@ pub async fn get_template(
         })))
     } else {
         Err(AppError::NotFound {
-            entity: "CompilationTemplate",
+            entity: "CompilationTemplate".to_string(),
             id: template_id.to_string(),
         })
     }
@@ -406,7 +400,7 @@ pub async fn get_template(
 
 /// Get compilation statistics
 pub async fn get_compilation_stats(
-    State(state): State<CompilationState>,
+    State(state): State<AppState>,
     Query(params): Query<CompilationStatsParams>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -433,15 +427,9 @@ pub struct CompilationStatsParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[tokio::test]
     async fn test_compilation_job_creation() {
-        let state = CompilationState {
-            db_pool: PgPool::connect("postgresql://test").await.unwrap(),
-            config: crate::config::Config::load().unwrap(),
-        };
-
         let request = CreateJobRequest {
             project_id: uuid::Uuid::new_v4(),
             file_id: None,

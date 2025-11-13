@@ -9,6 +9,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use crate::server::AppState;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -59,15 +60,9 @@ pub struct UserSearchParams {
     pub offset: Option<u32>,
 }
 
-/// Application state for user handlers
-#[derive(Clone)]
-pub struct UserState {
-    pub db_pool: sqlx::PgPool,
-}
-
 /// Get current user profile
 pub async fn get_current_user(
-    State(state): State<UserState>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = User::find_by_id(&state.db_pool, auth_user.user_id)
@@ -91,9 +86,9 @@ pub async fn get_current_user(
 
 /// Update current user profile
 pub async fn update_user(
-    State(state): State<UserState>,
-    Json(payload): Json<UserUpdateRequest>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<UserUpdateRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = User::find_by_id(&state.db_pool, auth_user.user_id)
         .await?
@@ -123,7 +118,7 @@ pub async fn update_user(
 
 /// Get user preferences
 pub async fn get_preferences(
-    State(state): State<UserState>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = User::find_by_id(&state.db_pool, auth_user.user_id)
@@ -147,9 +142,9 @@ pub async fn get_preferences(
 
 /// Update user preferences
 pub async fn update_preferences(
-    State(state): State<UserState>,
-    Json(payload): Json<UserPreferencesUpdateRequest>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<UserPreferencesUpdateRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = User::find_by_id(&state.db_pool, auth_user.user_id)
         .await?
@@ -208,9 +203,9 @@ pub async fn update_preferences(
 
 /// Search users
 pub async fn search_users(
-    State(state): State<UserState>,
-    Json(payload): Json<UserSearchParams>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<UserSearchParams>,
 ) -> Result<impl IntoResponse, AppError> {
     let limit = payload.limit.unwrap_or(20).min(100) as i64;
     let offset = payload.offset.unwrap_or(0) as i64;
@@ -243,7 +238,7 @@ pub async fn search_users(
         LIMIT $2 OFFSET $3
         "#
     )
-    .bind(query)
+    .bind(&query)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.db_pool)
@@ -261,14 +256,14 @@ pub async fn search_users(
         )
         "#
     )
-    .bind(query)
+    .bind(&query)
     .fetch_one(&state.db_pool)
     .await
     .map_err(AppError::Database)?;
 
     let response = UserSearchResponse {
         users,
-        total: total.unwrap_or(0) as u64,
+        total: total as u64,
     };
 
     Ok(Json(serde_json::json!({
@@ -279,7 +274,7 @@ pub async fn search_users(
 
 /// Get user by ID (public profile)
 pub async fn get_user_by_id(
-    State(state): State<UserState>,
+    State(state): State<AppState>,
     Path(user_id): Path<Uuid>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -304,7 +299,7 @@ pub async fn get_user_by_id(
 
 /// Get user statistics (admin only)
 pub async fn get_user_stats(
-    State(state): State<UserState>,
+    State(state): State<AppState>,
     _auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     // This endpoint would require admin privileges
@@ -323,8 +318,8 @@ pub async fn get_user_stats(
     .map_err(AppError::Database)?;
 
     let stats = serde_json::json!({
-        "total_users": total_users.unwrap_or(0),
-        "new_users_this_month": new_users_this_month.unwrap_or(0),
+        "total_users": total_users,
+        "new_users_this_month": new_users_this_month,
         "active_users_today": 0, // TODO: Implement based on last login
         "email_verified_users": 0, // TODO: Implement
     });
@@ -338,14 +333,9 @@ pub async fn get_user_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[tokio::test]
     async fn test_user_search_validation() {
-        let state = UserState {
-            db_pool: PgPool::connect("postgresql://test").await.unwrap(),
-        };
-
         let search_params = UserSearchParams {
             query: "".to_string(), // Empty query should return no results
             limit: Some(10),

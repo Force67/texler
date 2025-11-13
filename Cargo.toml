@@ -9,10 +9,11 @@ repository = "https://github.com/texler/texler"
 
 [dependencies]
 # Web framework
-axum = { version = "0.7", features = ["multipart"] }
+axum = { version = "0.7", features = ["multipart", "macros"] }
 tokio = { version = "1.40", features = ["full"] }
-tower = "0.4"
+tower = { version = "0.4", features = ["util", "make"] }
 tower-http = { version = "0.5", features = ["fs", "cors", "trace", "compression-gzip", "limit"] }
+hyper = { version = "0.14", features = ["server", "tcp"] }
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json", "migrate", "derive"], default-features = false }
@@ -78,6 +79,15 @@ lettre = { version = "0.11", features = ["rustls-tls"], default-features = false
 # Metrics
 prometheus = "0.13"
 regex = "1.12.2"
+
+[features]
+default = []
+oidc-test-bin = []
+
+[[bin]]
+name = "oidc_test_server"
+path = "src/bin/oidc_test_server.rs"
+required-features = ["oidc-test-bin"]
 
 [patch.crates-io]
 # Use patched versions if needed

@@ -10,7 +10,7 @@ use crate::models::auth::AuthContext;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -118,8 +118,8 @@ pub async fn list_sessions(
 /// Create a new collaboration session
 pub async fn create_session(
     State(state): State<crate::server::AppState>,
-    Json(payload): Json<CreateCollaborationSession>,
     auth_user: axum::Extension<AuthContext>,
+    Json(payload): Json<CreateCollaborationSession>,
 ) -> Result<impl IntoResponse, AppError> {
     let session = CollaborationSession::create(&state.db_pool, auth_user.user_id, payload).await?;
     let participants = SessionParticipant::get_active_participants(&state.db_pool, session.id).await?;
@@ -177,8 +177,8 @@ pub async fn get_session(
 pub async fn update_session(
     State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
-    Json(payload): Json<UpdateCollaborationSession>,
     auth_user: axum::Extension<AuthContext>,
+    Json(payload): Json<UpdateCollaborationSession>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check if user is session creator
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
@@ -244,8 +244,8 @@ pub async fn delete_session(
 pub async fn join_session(
     State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
-    Json(payload): Json<JoinSessionRequest>,
     auth_user: axum::Extension<AuthContext>,
+    Json(payload): Json<JoinSessionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let participant = SessionParticipant::join(
         &state.db_pool,
@@ -325,8 +325,8 @@ pub async fn get_participants(
 pub async fn create_operation(
     State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
-    Json(payload): Json<SessionOperationRequest>,
     auth_user: axum::Extension<AuthContext>,
+    Json(payload): Json<SessionOperationRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check if user is participant
     let participants = SessionParticipant::get_active_participants(&state.db_pool, session_id).await?;
@@ -414,8 +414,8 @@ pub async fn get_messages(
 pub async fn send_message(
     State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
-    Json(payload): Json<SessionMessageRequest>,
     auth_user: axum::Extension<AuthContext>,
+    Json(payload): Json<SessionMessageRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check if user is participant
     let participants = SessionParticipant::get_active_participants(&state.db_pool, session_id).await?;
@@ -454,8 +454,8 @@ pub async fn send_message(
 pub async fn invite_participant(
     State(state): State<crate::server::AppState>,
     Path(session_id): Path<Uuid>,
-    Json(payload): Json<SessionInvitationRequest>,
     auth_user: axum::Extension<AuthContext>,
+    Json(payload): Json<SessionInvitationRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check if user is session creator
     let session = CollaborationSession::find_by_id(&state.db_pool, session_id)
@@ -542,8 +542,8 @@ pub async fn get_invitation(
     _auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     // TODO: Implement invitation lookup from database
-    Err(AppError::NotFound {
-        entity: "SessionInvitation",
+    Err::<Response, AppError>(AppError::NotFound {
+        entity: "SessionInvitation".to_string(),
         id: token,
     })
 }
@@ -555,8 +555,8 @@ pub async fn accept_invitation(
     auth_user: axum::Extension<AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     // TODO: Implement invitation acceptance logic
-    Err(AppError::NotFound {
-        entity: "SessionInvitation",
+    Err::<Response, AppError>(AppError::NotFound {
+        entity: "SessionInvitation".to_string(),
         id: token,
     })
 }

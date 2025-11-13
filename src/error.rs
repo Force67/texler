@@ -7,9 +7,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use std::collections::HashMap;
 use thiserror::Error;
-use validator::ValidationErrors;
 use uuid::Uuid;
 
 /// Custom error types for the application
@@ -45,7 +43,7 @@ pub enum AppError {
 
     /// Validation errors
     #[error("Validation error: {0}")]
-    Validation(#[from] ValidationErrors),
+    Validation(String),
 
     /// Not found errors
     #[error("{entity} not found: {id}")]
@@ -129,9 +127,6 @@ impl AppError {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Jwt(_) => StatusCode::UNAUTHORIZED,
             AppError::Database(sqlx::Error::RowNotFound) => StatusCode::NOT_FOUND,
-            AppError::Database(sqlx::Error::Database(
-                sqlx::error::DatabaseError::UniqueViolation(_),
-            )) => StatusCode::CONFLICT,
             AppError::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -186,38 +181,7 @@ impl IntoResponse for AppError {
         }));
 
         // Add validation details if present
-        let body = if let AppError::Validation(validation_errors) = &self {
-            let details: HashMap<String, Vec<String>> = validation_errors
-                .field_errors()
-                .iter()
-                .map(|(field, errors)| {
-                    let messages: Vec<String> = errors
-                        .iter()
-                        .map(|e| e.message.to_string())
-                        .collect();
-                    (field.clone(), messages)
-                })
-                .collect();
-
-            let mut json_value = serde_json::to_value(&body).unwrap();
-            if let Some(error_obj) = json_value.as_object_mut()
-                .and_then(|obj| obj.get_mut("error"))
-                .and_then(|error| error.as_object_mut())
-            {
-                error_obj.insert("details".to_string(), serde_json::Value::Object(
-                    details
-                        .into_iter()
-                        .map(|(k, v)| (k, serde_json::Value::Array(v.into_iter().map(serde_json::Value::String).collect())))
-                        .collect()
-                ));
-            }
-
-            (status, Json(serde_json::from_value(json_value).unwrap())).into_response()
-        } else {
-            (status, body).into_response()
-        };
-
-        body
+        (status, body).into_response()
     }
 }
 

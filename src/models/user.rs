@@ -90,6 +90,7 @@ pub struct CreateUser {
     pub email: String,
     pub password: String,
     pub display_name: String,
+    pub avatar_url: Option<String>,
 }
 
 /// OIDC user creation request
@@ -401,7 +402,7 @@ impl User {
                 "#
             )
             .bind(provider)
-            .bind(user_info.sub)
+            .bind(user_info.sub.clone())
             .bind(AuthMethod::Oidc as AuthMethod)
             .bind(user_info.email_verified)
             .bind(user.id)
@@ -573,9 +574,9 @@ impl User {
             "#
         )
         .bind(self.id)
-        .bind(preferences.theme)
-        .bind(preferences.language)
-        .bind(preferences.latex_engine)
+        .bind(&preferences.theme)
+        .bind(&preferences.language)
+        .bind(&preferences.latex_engine)
         .bind(preferences.auto_save)
         .bind(preferences.line_numbers)
         .bind(preferences.word_wrap)
@@ -622,6 +623,7 @@ mod tests {
             email: "test@example.com".to_string(),
             password: "password123".to_string(),
             display_name: "Test User".to_string(),
+            avatar_url: None,
         };
 
         // assert!(User::create(&pool, user_data).await.is_ok());

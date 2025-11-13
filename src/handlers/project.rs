@@ -10,6 +10,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use crate::server::AppState;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -50,15 +51,9 @@ pub struct ProjectSearchParams {
     pub owner_id: Option<Uuid>,
 }
 
-/// Application state for project handlers
-#[derive(Clone)]
-pub struct ProjectState {
-    pub db_pool: sqlx::PgPool,
-}
-
 /// List projects accessible to the user
 pub async fn list_projects(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -93,7 +88,7 @@ pub async fn list_projects(
     let pagination_info = crate::models::PaginatedResponse::new(
         projects_with_details.clone(),
         &params,
-        total_count.unwrap_or(0) as u64,
+        total_count as u64,
     ).pagination;
 
     let response = ProjectsListResponse {
@@ -109,9 +104,9 @@ pub async fn list_projects(
 
 /// Create a new project
 pub async fn create_project(
-    State(state): State<ProjectState>,
-    Json(payload): Json<CreateProject>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<CreateProject>,
 ) -> Result<impl IntoResponse, AppError> {
     let project = Project::create(&state.db_pool, auth_user.user_id, payload).await?;
     let project_with_details = Project::get_with_details(&state.db_pool, project.id, auth_user.user_id).await?;
@@ -131,7 +126,7 @@ pub async fn create_project(
 
 /// Get project details
 pub async fn get_project(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -149,10 +144,10 @@ pub async fn get_project(
 
 /// Update project
 pub async fn update_project(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    Json(payload): Json<UpdateProject>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<UpdateProject>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check if user is project owner
     if !Project::is_owner(&state.db_pool, project_id, auth_user.user_id).await? {
@@ -165,7 +160,7 @@ pub async fn update_project(
     let current_project = Project::find_by_id(&state.db_pool, project_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: project_id.to_string(),
         })?;
 
@@ -184,7 +179,7 @@ pub async fn update_project(
 
 /// Delete project
 pub async fn delete_project(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -192,7 +187,7 @@ pub async fn delete_project(
     let project = Project::find_by_id(&state.db_pool, project_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: project_id.to_string(),
         })?;
 
@@ -207,14 +202,14 @@ pub async fn delete_project(
 
 /// Get project collaborators
 pub async fn get_collaborators(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check project access
     if !Project::has_access(&state.db_pool, project_id, auth_user.user_id).await? {
         return Err(AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: project_id.to_string(),
         });
     }
@@ -244,10 +239,10 @@ pub async fn get_collaborators(
 
 /// Add collaborator to project
 pub async fn add_collaborator(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    Json(payload): Json<AddCollaboratorRequest>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<AddCollaboratorRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check if user is project owner
     if !Project::is_owner(&state.db_pool, project_id, auth_user.user_id).await? {
@@ -291,7 +286,7 @@ pub async fn add_collaborator(
 
 /// Remove collaborator from project
 pub async fn remove_collaborator(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path((project_id, user_id)): Path<(Uuid, Uuid)>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -316,15 +311,15 @@ pub async fn remove_collaborator(
 
 /// Compile project
 pub async fn compile_project(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
-    Json(payload): Json<CompileProjectRequest>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<CompileProjectRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check project access
     if !Project::has_access(&state.db_pool, project_id, auth_user.user_id).await? {
         return Err(AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: project_id.to_string(),
         });
     }
@@ -365,14 +360,14 @@ pub async fn compile_project(
 
 /// Get project statistics
 pub async fn get_project_stats(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     // Check project access
     if !Project::has_access(&state.db_pool, project_id, auth_user.user_id).await? {
         return Err(AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: project_id.to_string(),
         });
     }
@@ -387,7 +382,7 @@ pub async fn get_project_stats(
 
 /// Get project activity
 pub async fn get_activity(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
     Query(params): Query<PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
@@ -395,7 +390,7 @@ pub async fn get_activity(
     // Check project access
     if !Project::has_access(&state.db_pool, project_id, auth_user.user_id).await? {
         return Err(AppError::NotFound {
-            entity: "Project",
+            entity: "Project".to_string(),
             id: project_id.to_string(),
         });
     }
@@ -417,7 +412,7 @@ pub async fn get_activity(
 
 /// Search projects (simplified version)
 pub async fn search_projects(
-    State(state): State<ProjectState>,
+    State(state): State<AppState>,
     Query(_params): Query<ProjectSearchParams>,
     Query(pagination_params): Query<PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
@@ -456,14 +451,9 @@ pub async fn search_projects(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[tokio::test]
     async fn test_project_access_check() {
-        let state = ProjectState {
-            db_pool: PgPool::connect("postgresql://test").await.unwrap(),
-        };
-
         // This test would require setting up a proper test database
         // with test users and projects
         assert!(true);

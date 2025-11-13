@@ -10,29 +10,38 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use axum::ServiceExt;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower::ServiceBuilder;
+use std::convert::Infallible;
+use hyper::Server;
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
     limit::RequestBodyLimitLayer,
-    trace::{DefaultMakeSpan, TraceLayer},
+    trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
 };
+use tower::make::Shared;
 use tracing::{info, warn};
 
 /// Application state
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
-    pub db_pool: Arc<sqlx::PgPool>,
+    pub db_pool: sqlx::PgPool,
     pub oidc_clients: Arc<std::collections::HashMap<String, authware::OidcClient>>,
     pub jwt_service: Arc<crate::models::auth::JwtService>,
     pub rate_limiter: Arc<crate::middleware::RateLimiter>,
 }
 
+// Ensure AppState satisfies the bounds required by Axum's State extractor
+const _: fn() = || {
+    fn assert_bounds<T: Clone + Send + Sync + 'static>() {}
+    assert_bounds::<AppState>();
+};
+
 /// Application router
-pub fn create_router(state: AppState) -> Router {
+pub fn create_router(state: &AppState) -> Router<AppState> {
     let cors = CorsLayer::new()
         .allow_origin(Any) // Configure appropriately for production
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH])
@@ -50,20 +59,17 @@ pub fn create_router(state: AppState) -> Router {
         // API routes
         .nest("/api/v1", api_routes())
         // Middleware
+        .layer(request_body_limit)
+        .layer(compression)
+        .layer(cors)
         .layer(
-            ServiceBuilder::new()
-                .layer(request_body_limit)
-                .layer(compression)
-                .layer(cors)
-                .layer(
-                    TraceLayer::new_for_http()
-                        .make_span_with(DefaultMakeSpan::default().include_headers(true))
-                )
-                .layer(middleware::from_fn_with_state(state.clone(), request_id_middleware))
-                .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
-                .layer(middleware::from_fn_with_state(state.clone(), logging_middleware)),
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::default().include_headers(true))
+                .on_response(DefaultOnResponse::new())
         )
-        .with_state(state)
+        .layer(middleware::from_fn_with_state(state.clone(), request_id_middleware))
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware))
+        .layer(middleware::from_fn_with_state(state.clone(), logging_middleware))
         .fallback(not_found_handler)
 }
 
@@ -211,7 +217,7 @@ async fn request_id_middleware(
     State(state): State<AppState>,
     request: Request,
     next: Next,
-) -> Result<Response, AppError> {
+) -> Result<Response, Infallible> {
     let request_id = RequestId::generate();
 
     let headers = request.headers();
@@ -232,7 +238,7 @@ async fn auth_middleware(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
-) -> Result<Response, AppError> {
+) -> Result<Response, Infallible> {
     // Skip authentication for health check and auth routes
     let path = request.uri().path();
     if path == "/health" || path.starts_with("/api/v1/auth") {
@@ -246,19 +252,25 @@ async fn auth_middleware(
 
     if let Some(auth_header) = auth_header {
         if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            let claims = state.jwt_service.verify_token_with_db(token, &state.db_pool).await?;
-            let auth_context = crate::models::auth::AuthContext::from(claims);
+            match state.jwt_service.verify_token_with_db(token, &state.db_pool).await {
+                Ok(claims) => {
+                    let auth_context = crate::models::auth::AuthContext::from(claims);
 
-            if auth_context.is_expired() {
-                return Err(AppError::Authentication("Token has expired".to_string()));
+                    if auth_context.is_expired() {
+                        return Ok(AppError::Authentication("Token has expired".to_string()).into_response());
+                    }
+
+                    request.extensions_mut().insert(auth_context);
+                    return Ok(next.run(request).await);
+                }
+                Err(err) => {
+                    return Ok(err.into_response());
+                }
             }
-
-            request.extensions_mut().insert(auth_context);
-            return Ok(next.run(request).await);
         }
     }
 
-    Err(AppError::Authentication("Missing or invalid authorization header".to_string()))
+    Ok(AppError::Authentication("Missing or invalid authorization header".to_string()).into_response())
 }
 
 /// Logging middleware
@@ -266,7 +278,7 @@ async fn logging_middleware(
     State(_state): State<AppState>,
     request: Request,
     next: Next,
-) -> Response {
+) -> Result<Response, Infallible> {
     let method = request.method().clone();
     let uri = request.uri().clone();
     let request_id = request
@@ -317,7 +329,7 @@ async fn logging_middleware(
         _ => {}
     }
 
-    response
+    Ok(response)
 }
 
 impl AppState {
@@ -356,7 +368,7 @@ impl AppState {
 
         Ok(AppState {
             config: Arc::new(config),
-            db_pool: Arc::new(db_pool),
+            db_pool,
             oidc_clients: Arc::new(oidc_clients),
             jwt_service: Arc::new(jwt_service),
             rate_limiter: Arc::new(crate::middleware::RateLimiter::new()),
@@ -365,15 +377,15 @@ impl AppState {
 }
 
 /// Create the application
-pub async fn create_app(state: AppState) -> Router {
-    create_router(state)
+pub async fn create_app(state: AppState) -> Router<AppState> {
+    create_router(&state).with_state(state)
 }
 
 /// Start the web server
 pub async fn start_server(config: Config, db_pool: sqlx::PgPool) -> Result<(), AppError> {
     let state = AppState::new(config.clone(), db_pool).await?;
 
-    let app = create_router(state);
+    let app = create_router(&state).with_state(state.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
 
@@ -383,9 +395,11 @@ pub async fn start_server(config: Config, db_pool: sqlx::PgPool) -> Result<(), A
     );
 
     let listener = tokio::net::TcpListener::bind(addr).await
-        .map_err(|e| AppError::Config(format!("Failed to bind to {}: {}", addr, e)))?;
+        .map_err(|e| AppError::Config(format!("Failed to bind to {}: {}", config.server.bind_address(), e)))?;
 
-    axum::serve(listener, app)
+    let make_service = tower::make::Shared::new(app);
+
+    axum::serve(listener, make_service)
         .await
         .map_err(|e| AppError::Server(format!("Server error: {}", e)))?;
 

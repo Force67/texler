@@ -378,9 +378,9 @@ impl Project {
         user_id: Uuid,
     ) -> Result<ProjectWithDetails, crate::error::AppError> {
         // Get basic project info with access control
-        let project = Self::find_by_id(db, project_id, user_id)?
+        let project = Self::find_by_id(db, project_id, user_id).await?
             .ok_or_else(|| crate::error::AppError::NotFound {
-                entity: "Project",
+                entity: "Project".to_string(),
                 id: project_id.to_string(),
             })?;
 

@@ -23,7 +23,7 @@ pub struct File {
     pub size: i64,
     pub line_count: i32,
     pub word_count: i32,
-    pub latex_metadata: Option<FileMetadata>,
+    pub latex_metadata: Option<serde_json::Value>,
     pub version: i32,
     pub checksum: Option<String>,
     pub is_main: bool,
@@ -51,8 +51,7 @@ impl Entity for File {
 }
 
 /// File metadata for LaTeX files
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "jsonb")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
     pub citations: Vec<String>,
     pub references: Vec<String>,
@@ -178,13 +177,21 @@ impl File {
         create_file: CreateFile,
         created_by: Uuid,
     ) -> Result<Self, crate::error::AppError> {
-        let content = create_file.content.unwrap_or_default();
-        let content_type = create_file.content_type.unwrap_or_default();
+        let CreateFile {
+            name,
+            path,
+            content,
+            content_type,
+        } = create_file;
+
+        let content = content.unwrap_or_default();
+        let content_type = content_type.unwrap_or_default();
         let content_hash = Some(calculate_content_hash(&content));
         let size = content.len() as i64;
         let line_count = content.lines().count() as i32;
         let word_count = content.split_whitespace().count() as i32;
-        let latex_metadata = extract_latex_metadata(&content, content_type);
+        let latex_metadata = extract_latex_metadata(&content, content_type)
+            .and_then(|metadata| serde_json::to_value(metadata).ok());
 
         let file = sqlx::query_as::<_, File>(
             r#"
@@ -198,17 +205,17 @@ impl File {
             "#
         )
         .bind(project_id)
-        .bind(create_file.name)
-        .bind(create_file.path)
+        .bind(name)
+        .bind(&path)
         .bind(content_type as ContentType)
         .bind(StorageStrategy::default())
         .bind(content_hash.as_ref().unwrap())
         .bind(size)
         .bind(line_count)
         .bind(word_count)
-        .bind(serde_json::to_value(latex_metadata).ok())
+        .bind(&latex_metadata)
         .bind(content_hash.as_ref().unwrap())
-        .bind(create_file.path == "main.tex")
+        .bind(path == "main.tex")
         .bind(created_by)
         .fetch_one(db)
         .await
@@ -334,7 +341,8 @@ impl File {
         let size = content.len() as i64;
         let line_count = content.lines().count() as i32;
         let word_count = content.split_whitespace().count() as i32;
-        let latex_metadata = extract_latex_metadata(&content, self.content_type);
+        let latex_metadata = extract_latex_metadata(&content, self.content_type)
+            .and_then(|metadata| serde_json::to_value(metadata).ok());
 
         let file = sqlx::query_as::<_, File>(
             r#"
@@ -357,7 +365,7 @@ impl File {
         .bind(size)
         .bind(line_count)
         .bind(word_count)
-        .bind(serde_json::to_value(latex_metadata).ok())
+        .bind(&latex_metadata)
         .bind(modified_by)
         .bind(self.id)
         .fetch_one(db)
@@ -595,27 +603,29 @@ fn extract_latex_metadata(content: &str, content_type: ContentType) -> Option<Fi
 
     // Extract citations
     let citation_regex = regex::Regex::new(r"\\cite\{([^}]+)\}").unwrap();
-    for cap in citation_regex.captures_iter() {
+    for cap in citation_regex.captures_iter(content) {
         let citation = &cap[1];
-        let cites: Vec<&str> = citation.split(',').map(|s| s.trim()).collect();
+        let cites: Vec<String> = citation.split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
         metadata.citations.extend(cites);
     }
 
     // Extract references
     let ref_regex = regex::Regex::new(r"\\ref\{([^}]+)\}").unwrap();
-    for cap in ref_regex.captures_iter() {
+    for cap in ref_regex.captures_iter(content) {
         metadata.references.push(cap[1].to_string());
     }
 
     // Extract labels
     let label_regex = regex::Regex::new(r"\\label\{([^}]+)\}").unwrap();
-    for cap in label_regex.captures_iter() {
+    for cap in label_regex.captures_iter(content) {
         metadata.labels.push(cap[1].to_string());
     }
 
     // Extract includes
     let include_regex = regex::Regex::new(r"\\(input|include)\{([^}]+)\}").unwrap();
-    for cap in include_regex.captures_iter() {
+    for cap in include_regex.captures_iter(content) {
         let include = &cap[2];
         let path = if !include.ends_with(".tex") {
             format!("{}.tex", include)

@@ -5,11 +5,11 @@ use crate::models::file::{File, CreateFile, UpdateFile, FileWithDetails, FileNod
 use crate::models::{PaginationParams, ContentType, StorageStrategy};
 use axum::{
     extract::{Path, Query, State, Multipart},
-    http::{StatusCode, header},
-    response::{IntoResponse, Response},
+    http::{StatusCode, header, HeaderMap, HeaderValue},
+    response::IntoResponse,
     Json,
-    body::Bytes,
 };
+use crate::server::AppState;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use std::path::Path as StdPath;
@@ -58,16 +58,9 @@ pub struct FileSearchParams {
     pub project_id: Option<Uuid>,
 }
 
-/// Application state for file handlers
-#[derive(Clone)]
-pub struct FileState {
-    pub db_pool: sqlx::PgPool,
-    pub config: crate::config::Config,
-}
-
 /// List files accessible to the user
 pub async fn list_files(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Query(params): Query<FileSearchParams>,
     Query(pagination_params): Query<PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
@@ -109,7 +102,7 @@ pub async fn list_files(
     let pagination_info = crate::models::PaginatedResponse::new(
         files_with_details.clone(),
         &pagination_params,
-        total_count.unwrap_or(0) as u64,
+        total_count as u64,
     ).pagination;
 
     let response = FilesListResponse {
@@ -125,9 +118,9 @@ pub async fn list_files(
 
 /// Create a new file
 pub async fn create_file(
-    State(state): State<FileState>,
-    Json(payload): Json<CreateFile>,
+    State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<CreateFile>,
 ) -> Result<impl IntoResponse, AppError> {
     // Extract project_id from the path (assuming it's provided as a query parameter or path)
     let project_id = auth_user.user_id; // TODO: This should come from the request
@@ -166,7 +159,7 @@ pub async fn create_file(
 
 /// Get file details
 pub async fn get_file(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Path(file_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -184,16 +177,16 @@ pub async fn get_file(
 
 /// Update file
 pub async fn update_file(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Path(file_id): Path<Uuid>,
-    Json(payload): Json<UpdateFile>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<UpdateFile>,
 ) -> Result<impl IntoResponse, AppError> {
     // Get current file
     let current_file = File::find_by_id(&state.db_pool, file_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "File",
+            entity: "File".to_string(),
             id: file_id.to_string(),
         })?;
 
@@ -234,7 +227,7 @@ pub async fn update_file(
 
 /// Delete file
 pub async fn delete_file(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Path(file_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -242,7 +235,7 @@ pub async fn delete_file(
     let file = File::find_by_id(&state.db_pool, file_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "File",
+            entity: "File".to_string(),
             id: file_id.to_string(),
         })?;
 
@@ -257,14 +250,14 @@ pub async fn delete_file(
 
 /// Get file content
 pub async fn get_file_content(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Path(file_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let file = File::find_by_id(&state.db_pool, file_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "File",
+            entity: "File".to_string(),
             id: file_id.to_string(),
         })?;
 
@@ -287,10 +280,10 @@ pub async fn get_file_content(
 
 /// Update file content
 pub async fn update_file_content(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Path(file_id): Path<Uuid>,
-    Json(payload): Json<serde_json::Value>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    Json(payload): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
     let content = payload.get("content")
         .and_then(|v| v.as_str())
@@ -300,7 +293,7 @@ pub async fn update_file_content(
     let current_file = File::find_by_id(&state.db_pool, file_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "File",
+            entity: "File".to_string(),
             id: file_id.to_string(),
         })?;
 
@@ -320,34 +313,37 @@ pub async fn update_file_content(
 
 /// Download file
 pub async fn download_file(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Path(file_id): Path<Uuid>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
     let file = File::find_by_id(&state.db_pool, file_id, auth_user.user_id)
         .await?
         .ok_or_else(|| AppError::NotFound {
-            entity: "File",
+            entity: "File".to_string(),
             id: file_id.to_string(),
         })?;
 
     // Get file content
     let content = String::new(); // TODO: Implement content retrieval from storage
 
-    let headers = [
-        (header::CONTENT_TYPE, "application/octet-stream"),
-        (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}\"", file.name)),
-    ];
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+
+    let disposition = format!("attachment; filename=\"{}\"", file.name);
+    let disposition_value = HeaderValue::from_str(&disposition)
+        .map_err(|_| AppError::Internal("Invalid file name for download".to_string()))?;
+    headers.insert(header::CONTENT_DISPOSITION, disposition_value);
 
     Ok((headers, content))
 }
 
 /// Upload file
 pub async fn upload_file(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Query(params): Query<FileSearchParams>,
-    mut multipart: Multipart,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
+    mut multipart: Multipart,
 ) -> Result<impl IntoResponse, AppError> {
     let project_id = params.project_id.ok_or_else(|| AppError::Validation(
         "Project ID is required".to_string(),
@@ -388,10 +384,11 @@ pub async fn upload_file(
         let file_with_details = File::get_with_details(&state.db_pool, file.id, auth_user.user_id).await?;
 
         // TODO: Store file content based on storage strategy
-        match state.config.features.file_storage.type_.as_str() {
+        let config = state.config.as_ref();
+        match config.features.file_storage.type_.as_str() {
             "local" => {
                 // Store to local filesystem
-                let file_path = format!("{}/{}", state.config.features.file_storage.local_path, file.id);
+                let file_path = format!("{}/{}", config.features.file_storage.local_path, file.id);
                 tokio::fs::write(&file_path, &content).await
                     .map_err(|e| AppError::Storage(format!("Failed to save file: {}", e)))?;
             }
@@ -423,7 +420,7 @@ pub async fn upload_file(
 
 /// Get file tree for a project
 pub async fn get_file_tree(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Query(params): Query<FileSearchParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
 ) -> Result<impl IntoResponse, AppError> {
@@ -443,7 +440,7 @@ pub async fn get_file_tree(
     let files = File::list_for_project(&state.db_pool, project_id, auth_user.user_id, &pagination_params).await?;
 
     // Build file tree
-    let tree = File::build_tree(&files);
+    let tree = File::build_tree(&files).await;
 
     let total_files = files.len() as i64;
     let total_size = files.iter().map(|f| f.size).sum();
@@ -462,7 +459,7 @@ pub async fn get_file_tree(
 
 /// Search files
 pub async fn search_files(
-    State(state): State<FileState>,
+    State(state): State<AppState>,
     Query(params): Query<FileSearchParams>,
     Query(pagination_params): Query<PaginationParams>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
@@ -543,15 +540,9 @@ pub async fn search_files(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::PgPool;
 
     #[tokio::test]
     async fn test_file_creation_validation() {
-        let state = FileState {
-            db_pool: PgPool::connect("postgresql://test").await.unwrap(),
-            config: crate::config::Config::load().unwrap(),
-        };
-
         let create_file = CreateFile {
             name: "".to_string(), // Empty name should fail validation
             path: "/test.tex".to_string(),
