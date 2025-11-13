@@ -48,23 +48,46 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # Future services will be added here
-  # frontend:
-  #   build: ./apps/web
-  #   ports:
-  #     - "3000:3000"
-  #   container_name: texler-frontend
-  #   restart: unless-stopped
+  # Frontend service
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    container_name: texler-frontend
+    restart: unless-stopped
+    depends_on:
+      - latex
+      - backend
 
-  # backend:
-  #   build: ./packages/backend
-  #   ports:
-  #     - "8080:8080"
-  #   depends_on:
-  #     - postgres
-  #     - redis
-  #   container_name: texler-backend
-  #   restart: unless-stopped
+  # Rust Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=texler
+      - DATABASE_USER=postgres
+      - DATABASE_PASSWORD=password
+      - REDIS_URL=redis://redis:6379
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=8080
+      - JWT_SECRET=your_super_secret_jwt_key_at_least_32_characters_long
+      - BASE_URL=http://localhost:8080
+      - LATEX_SERVICE_URL=http://latex:8081
+    depends_on:
+      - postgres
+      - redis
+      - latex
+    container_name: texler-backend
+    restart: unless-stopped
 
 volumes:
   postgres_data:

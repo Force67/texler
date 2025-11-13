@@ -7,7 +7,7 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
+    routing::{delete, get, on, post, put, MethodFilter},
     Json, Router,
 };
 use axum::ServiceExt;
@@ -86,8 +86,17 @@ fn api_routes() -> Router<AppState> {
         .nest("/files", file_routes())
         // Compilation routes
         .nest("/compilation", compilation_routes())
+        // LaTeX proxy routes (for frontend compatibility)
+        .nest("/latex", latex_proxy_routes())
         // Collaboration routes
         .nest("/collaboration", collaboration_routes())
+        // Handle trailing slashes explicitly
+        .route("/users/", get(crate::handlers::user::get_current_user))
+        .route("/users/", post(crate::handlers::user::update_user))
+        .route("/projects/", get(crate::handlers::project::list_projects))
+        .route("/projects/", post(crate::handlers::project::create_project))
+        .route("/files/", get(crate::handlers::file::list_files))
+        .route("/files/", post(crate::handlers::file::create_file))
 }
 
 /// Authentication routes
@@ -124,13 +133,9 @@ fn user_routes() -> Router<AppState> {
 /// Project routes
 fn project_routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(crate::handlers::project::list_projects))
-        .route("/", post(crate::handlers::project::create_project))
-        .route("/:id", get(crate::handlers::project::get_project))
-        .route("/:id", put(crate::handlers::project::update_project))
-        .route("/:id", delete(crate::handlers::project::delete_project))
-        .route("/:id/collaborators", get(crate::handlers::project::get_collaborators))
-        .route("/:id/collaborators", post(crate::handlers::project::add_collaborator))
+        .route("/", get(crate::handlers::project::list_projects).post(crate::handlers::project::create_project))
+        .route("/:id", get(crate::handlers::project::get_project).put(crate::handlers::project::update_project).delete(crate::handlers::project::delete_project))
+        .route("/:id/collaborators", get(crate::handlers::project::get_collaborators).post(crate::handlers::project::add_collaborator))
         .route("/:id/collaborators/:user_id", delete(crate::handlers::project::remove_collaborator))
         .route("/:id/compile", post(crate::handlers::project::compile_project))
         .route("/:id/stats", get(crate::handlers::project::get_project_stats))
@@ -141,13 +146,9 @@ fn project_routes() -> Router<AppState> {
 /// File routes
 fn file_routes() -> Router<AppState> {
     Router::new()
-        .route("/", get(crate::handlers::file::list_files))
-        .route("/", post(crate::handlers::file::create_file))
-        .route("/:id", get(crate::handlers::file::get_file))
-        .route("/:id", put(crate::handlers::file::update_file))
-        .route("/:id", delete(crate::handlers::file::delete_file))
-        .route("/:id/content", get(crate::handlers::file::get_file_content))
-        .route("/:id/content", put(crate::handlers::file::update_file_content))
+        .route("/", get(crate::handlers::file::list_files).post(crate::handlers::file::create_file))
+        .route("/:id", get(crate::handlers::file::get_file).put(crate::handlers::file::update_file).delete(crate::handlers::file::delete_file))
+        .route("/:id/content", get(crate::handlers::file::get_file_content).put(crate::handlers::file::update_file_content))
         .route("/:id/download", get(crate::handlers::file::download_file))
         .route("/upload", post(crate::handlers::file::upload_file))
         .route("/tree", get(crate::handlers::file::get_file_tree))
@@ -157,37 +158,44 @@ fn file_routes() -> Router<AppState> {
 /// Compilation routes
 fn compilation_routes() -> Router<AppState> {
     Router::new()
-        .route("/jobs", get(crate::handlers::compilation::list_jobs))
-        .route("/jobs", post(crate::handlers::compilation::create_job))
+        .route("/jobs", get(crate::handlers::compilation::list_jobs).post(crate::handlers::compilation::create_job))
         .route("/jobs/:id", get(crate::handlers::compilation::get_job))
         .route("/jobs/:id/cancel", post(crate::handlers::compilation::cancel_job))
         .route("/jobs/:id/logs", get(crate::handlers::compilation::get_job_logs))
         .route("/jobs/:id/artifacts", get(crate::handlers::compilation::get_job_artifacts))
         .route("/queue", get(crate::handlers::compilation::get_queue_status))
-        .route("/templates", get(crate::handlers::compilation::list_templates))
-        .route("/templates", post(crate::handlers::compilation::create_template))
+        .route("/templates", get(crate::handlers::compilation::list_templates).post(crate::handlers::compilation::create_template))
         .route("/templates/:id", get(crate::handlers::compilation::get_template))
         .route("/stats", get(crate::handlers::compilation::get_compilation_stats))
+}
+
+/// LaTeX proxy routes (for frontend compatibility)
+fn latex_proxy_routes() -> Router<AppState> {
+    Router::new()
+        .route("/compile", post(crate::handlers::latex_proxy::compile_latex))
+        .route("/health", get(crate::handlers::latex_proxy::latex_health_check))
+        // Skip auth middleware for these routes to allow direct frontend access
+        .layer(middleware::from_fn(skip_auth_middleware))
 }
 
 /// Collaboration routes
 fn collaboration_routes() -> Router<AppState> {
     Router::new()
-        .route("/sessions", get(crate::handlers::collaboration::list_sessions))
-        .route("/sessions", post(crate::handlers::collaboration::create_session))
-        .route("/sessions/:id", get(crate::handlers::collaboration::get_session))
-        .route("/sessions/:id", put(crate::handlers::collaboration::update_session))
-        .route("/sessions/:id", delete(crate::handlers::collaboration::delete_session))
+        // Session routes (require auth)
+        .route("/sessions", get(crate::handlers::collaboration::list_sessions).post(crate::handlers::collaboration::create_session))
+        .route("/sessions/:id", get(crate::handlers::collaboration::get_session).put(crate::handlers::collaboration::update_session).delete(crate::handlers::collaboration::delete_session))
         .route("/sessions/:id/join", post(crate::handlers::collaboration::join_session))
         .route("/sessions/:id/leave", post(crate::handlers::collaboration::leave_session))
         .route("/sessions/:id/participants", get(crate::handlers::collaboration::get_participants))
         .route("/sessions/:id/operations", post(crate::handlers::collaboration::create_operation))
-        .route("/sessions/:id/messages", get(crate::handlers::collaboration::get_messages))
-        .route("/sessions/:id/messages", post(crate::handlers::collaboration::send_message))
+        .route("/sessions/:id/messages", get(crate::handlers::collaboration::get_messages).post(crate::handlers::collaboration::send_message))
         .route("/sessions/:id/invite", post(crate::handlers::collaboration::invite_participant))
         .route("/sessions/:id/stats", get(crate::handlers::collaboration::get_session_stats))
-        .route("/invitations/:token", get(crate::handlers::collaboration::get_invitation))
-        .route("/invitations/:token", post(crate::handlers::collaboration::accept_invitation))
+        // Public invitation routes (no auth required)
+        .nest("/invitations", Router::new()
+            .route("/:token", get(crate::handlers::collaboration::get_invitation).post(crate::handlers::collaboration::accept_invitation))
+            .layer(middleware::from_fn(skip_auth_middleware))
+        )
 }
 
 /// Health check endpoint
@@ -233,15 +241,27 @@ async fn request_id_middleware(
     Ok(next.run(request).await)
 }
 
+/// Skip authentication middleware for specific routes
+async fn skip_auth_middleware(
+    request: Request,
+    next: Next,
+) -> Result<Response, Infallible> {
+    Ok(next.run(request).await)
+}
+
+
 /// Authentication middleware
 async fn auth_middleware(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, Infallible> {
-    // Skip authentication for health check and auth routes
+    // Skip authentication for health check, auth routes, LaTeX proxy routes, and collaboration invitations
     let path = request.uri().path();
-    if path == "/health" || path.starts_with("/api/v1/auth") {
+    if path == "/health"
+        || path.starts_with("/api/v1/auth")
+        || path.starts_with("/api/v1/latex")
+        || path.starts_with("/api/v1/collaboration/invitations") {
         return Ok(next.run(request).await);
     }
 

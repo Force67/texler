@@ -7,7 +7,7 @@ import { FileBrowser } from './components/FileBrowser';
 import { FileTabs } from './components/FileTabs';
 import './App.css';
 
-const LATEX_API_URL = 'http://localhost:8081';
+const BACKEND_API_URL = 'http://localhost:8080';
 
 function App() {
   const projectState = useProjectState();
@@ -29,14 +29,20 @@ function App() {
     setError(null);
 
     try {
+      // Transform data to match Rust backend expectations
+      const requestData = {
+        files: compilationData.files,
+        main_file: compilationData.mainFile
+      };
+
       console.log('Compiling multi-file project:', {
         fileCount: Object.keys(compilationData.files).length,
         mainFile: compilationData.mainFile,
         files: Object.keys(compilationData.files)
       });
 
-      console.log('Sending to backend:', compilationData);
-      const response = await axios.post(`${LATEX_API_URL}/compile`, compilationData);
+      console.log('Sending to Rust backend:', requestData);
+      const response = await axios.post(`${BACKEND_API_URL}/api/v1/latex/compile`, requestData);
 
       console.log('Backend response:', response.data);
 
