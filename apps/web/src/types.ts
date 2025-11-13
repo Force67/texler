@@ -1,3 +1,22 @@
+export interface UserProfile {
+  id: string;
+  username: string;
+  email: string;
+  display_name: string;
+  avatar_url?: string | null;
+  is_active: boolean;
+  email_verified: boolean;
+  last_login_at?: string | null;
+  created_at: string;
+}
+
+export interface LoginResponsePayload {
+  user: UserProfile;
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+}
+
 export interface FileNode {
   name: string;
   path: string;

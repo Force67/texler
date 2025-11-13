@@ -5,11 +5,14 @@ import * as monaco from 'monaco-editor';
 import { useProjectState } from './hooks/useProjectState';
 import { FileBrowser } from './components/FileBrowser';
 import { FileTabs } from './components/FileTabs';
+import { LoginPanel } from './components/LoginPanel';
+import { useAuth } from './hooks/useAuth';
 import './App.css';
 import { BACKEND_API_URL } from './config';
 
 function App() {
-  const projectState = useProjectState();
+  const auth = useAuth();
+  const projectState = useProjectState(auth.token);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [compiling, setCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,20 +115,6 @@ function App() {
     }
   };
 
-  const handleWorkspaceChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const workspaceId = event.target.value;
-    if (workspaceId) {
-      await projectState.selectWorkspace(workspaceId);
-    }
-  };
-
-  const handleProjectChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const projectId = event.target.value;
-    if (projectId) {
-      await projectState.selectProject(projectId);
-    }
-  };
-
   const handleEditorZoom = (editor: monaco.editor.IStandaloneCodeEditor, delta: number) => {
     const newZoom = Math.max(8, Math.min(72, editorZoom + delta));
     setEditorZoom(newZoom);
@@ -142,137 +131,221 @@ function App() {
   const selectedWorkspace = workspaceOptions.find(ws => ws.id === projectState.workspaceId) || workspaceOptions[0];
   const projectOptions = selectedWorkspace?.projects ?? [];
   const fileKeys = new Set(Array.from(projectState.files.keys()));
+  const userDisplayName = auth.user?.display_name || auth.user?.username || 'Texler User';
+  const userEmail = auth.user?.email ?? '';
+  const userInitials = userDisplayName
+    .split(' ')
+    .map(part => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || 'TX';
+  const compileDisabled = compiling || !projectState.isReady;
+  const compileStatusLabel = error ? 'Needs attention' : compiling ? 'Compiling…' : 'Live preview';
+  const compileStatusVariant = error ? 'error' : compiling ? 'active' : 'idle';
+
+  const handleWorkspaceSelect = async (workspaceId: string) => {
+    if (workspaceId) {
+      await projectState.selectWorkspace(workspaceId);
+    }
+  };
+
+  const handleProjectSelect = async (projectId: string) => {
+    if (projectId) {
+      await projectState.selectProject(projectId, selectedWorkspace?.id);
+    }
+  };
+
+  if (auth.loading && !auth.isAuthenticated) {
+    return (
+      <div className="app-loading-screen">
+        <div className="loading-spinner" />
+        <p>Preparing Texler…</p>
+      </div>
+    );
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <LoginPanel
+        onLogin={auth.login}
+        loading={auth.loading}
+        error={auth.error}
+      />
+    );
+  }
 
   return (
     <div className="App">
       <header className="App-header">
-        <div className="header-left">
-          <h1>Texler - Multi-File LaTeX Editor</h1>
-          <div className="workspace-selectors">
-            <div className="workspace-control">
-              <label htmlFor="workspace-select">Workspace</label>
-              <div className="control-row">
-                <select
-                  id="workspace-select"
-                  value={projectState.workspaceId ?? ''}
-                  onChange={handleWorkspaceChange}
-                >
-                  {workspaceOptions.length === 0 && (
-                    <option value="" disabled>
-                      Loading...
-                    </option>
-                  )}
-                  {workspaceOptions.map(workspace => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.name}
-                    </option>
-                  ))}
-                </select>
-                <button className="control-btn" onClick={handleCreateWorkspace}>
-                  +
-                </button>
-              </div>
-            </div>
-            <div className="workspace-control">
-              <label htmlFor="project-select">Project</label>
-              <div className="control-row">
-                <select
-                  id="project-select"
-                  value={projectState.projectId ?? ''}
-                  onChange={handleProjectChange}
-                  disabled={!projectOptions.length}
-                >
-                  {!projectOptions.length && (
-                    <option value="" disabled>
-                      {projectState.workspaceId ? 'No projects yet' : 'Select workspace'}
-                    </option>
-                  )}
-                  {projectOptions.map(project => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
-                <button className="control-btn" onClick={handleCreateNewProject}>
-                  +
-                </button>
-              </div>
-            </div>
+        <div className="brand-block">
+          <div className="brand-logo">TX</div>
+          <div className="brand-copy">
+            <h1>Texler IDE</h1>
+            <p>{projectState.projectName ? `Editing ${projectState.projectName}` : 'Select a project to get started'}</p>
           </div>
         </div>
-        <div className="header-controls">
+        <div className="header-actions">
+          <div className="status-pills">
+            <span className="status-pill">
+              Workspaces
+              <strong>{workspaceOptions.length}</strong>
+            </span>
+            <span className="status-pill">
+              Files
+              <strong>{projectState.files.size}</strong>
+            </span>
+          </div>
           <button
             className="compile-button"
             onClick={compileLatex}
-            disabled={compiling || !projectState.isReady}
+            disabled={compileDisabled}
           >
-            {compiling ? 'Compiling...' : 'Compile'}
+            {compiling ? 'Compiling…' : 'Compile'}
           </button>
+          <div className="user-chip">
+            <div className="user-avatar">{userInitials}</div>
+            <div className="user-meta">
+              <span className="user-name">{userDisplayName}</span>
+              <span className="user-email">{userEmail}</span>
+            </div>
+            <button className="chip-logout" onClick={auth.logout} title="Log out">
+              Log out
+            </button>
+          </div>
         </div>
       </header>
-      <div className="editor-container">
-        {/* File Browser Sidebar */}
-        <div className="file-browser-panel">
-          <FileBrowser
-            files={projectState.files}
-            activeFile={projectState.activeFile}
-            mainFile={projectState.mainFile}
-            onFileClick={projectState.openFile}
-            onMainFileSet={projectState.setMainFile}
-            onAddFile={projectState.addFile}
-            existingFiles={fileKeys}
-          />
-        </div>
-
-        <div className="editor-panel">
-          {/* File Tabs */}
-          <FileTabs
-            openFiles={projectState.openFiles}
-            activeFile={projectState.activeFile}
-            files={projectState.files}
-            onTabClick={projectState.openFile}
-            onTabClose={projectState.closeFile}
-          />
-
-          {/* Zoom Indicator */}
-          <div className="zoom-indicator">
-            <span>Zoom: {editorZoom}px</span>
-            <div className="zoom-controls">
-              <button onClick={() => {
-                const newZoom = Math.max(8, editorZoom - 1);
-                setEditorZoom(newZoom);
-              }} title="Zoom Out (Ctrl + Mouse Wheel Down)">−</button>
-              <button onClick={() => setEditorZoom(14)} title="Reset Zoom">100%</button>
-              <button onClick={() => {
-                const newZoom = Math.min(72, editorZoom + 1);
-                setEditorZoom(newZoom);
-              }} title="Zoom In (Ctrl + Mouse Wheel Up)">+</button>
-              <button onClick={handleForceRefresh} title="Force Compile (Debug)">🔄</button>
+      <div className="app-body">
+        <aside className="workspace-sidebar">
+          <div className="sidebar-section">
+            <div className="section-header">
+              <div>
+                <h3>Workspaces</h3>
+                <p>Switch between personal or shared spaces</p>
+              </div>
+              <button className="section-cta" onClick={handleCreateWorkspace}>
+                + Workspace
+              </button>
+            </div>
+            <div className="workspace-list">
+              {workspaceOptions.length ? (
+                workspaceOptions.map(workspace => (
+                  <button
+                    key={workspace.id}
+                    className={`workspace-card ${selectedWorkspace?.id === workspace.id ? 'active' : ''}`}
+                    onClick={() => handleWorkspaceSelect(workspace.id)}
+                  >
+                    <div className="workspace-name">{workspace.name}</div>
+                    <div className="workspace-meta">
+                      <span>{workspace.project_count} projects</span>
+                      <span>{new Date(workspace.updated_at).toLocaleDateString()}</span>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p className="empty-state">No workspaces yet. Create one to start writing.</p>
+              )}
             </div>
           </div>
 
-          <div className="editor-container-inner">
-            <Editor
-              height="100%"
-              language="latex"
-              defaultValue=""
-              value={activeFileContent}
-              onChange={(value) => {
-                if (projectState.activeFile) {
-                  projectState.updateFile(projectState.activeFile, value || '');
-                }
-              }}
-              theme="vs-dark"
-              options={{
-                minimap: { enabled: false },
-                fontSize: editorZoom,
-                lineNumbers: 'on',
-                roundedSelection: false,
-                scrollBeyondLastLine: false,
-                automaticLayout: true,
-                wordWrap: 'on',
-              }}
-              beforeMount={(monaco) => {
+          <div className="sidebar-section">
+            <div className="section-header">
+              <div>
+                <h3>Projects</h3>
+                <p>{selectedWorkspace ? `in ${selectedWorkspace.name}` : 'Select a workspace to load projects'}</p>
+              </div>
+              <button className="section-cta" onClick={handleCreateNewProject} disabled={!selectedWorkspace}>
+                + Project
+              </button>
+            </div>
+            <div className="project-list">
+              {selectedWorkspace && projectOptions.length ? (
+                projectOptions.map(project => (
+                  <button
+                    key={project.id}
+                    className={`project-card ${projectState.projectId === project.id ? 'active' : ''}`}
+                    onClick={() => handleProjectSelect(project.id)}
+                  >
+                    <div className="project-name">{project.name}</div>
+                    <div className="project-meta">
+                      <span>{project.file_count} files</span>
+                      <span>{project.main_file ? `Main: ${project.main_file}` : 'Main file unassigned'}</span>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p className="empty-state">
+                  {selectedWorkspace
+                    ? 'No projects here yet. Create one to begin writing.'
+                    : 'Choose a workspace to see projects.'}
+                </p>
+              )}
+            </div>
+          </div>
+        </aside>
+
+        <div className="content-panels">
+          <div className="editor-stack">
+            <div className="editor-container">
+              <div className="file-browser-panel">
+                <FileBrowser
+                  files={projectState.files}
+                  activeFile={projectState.activeFile}
+                  mainFile={projectState.mainFile}
+                  onFileClick={projectState.openFile}
+                  onMainFileSet={projectState.setMainFile}
+                  onAddFile={projectState.addFile}
+                  existingFiles={fileKeys}
+                />
+              </div>
+
+              <div className="editor-panel">
+                <FileTabs
+                  openFiles={projectState.openFiles}
+                  activeFile={projectState.activeFile}
+                  files={projectState.files}
+                  onTabClick={projectState.openFile}
+                  onTabClose={projectState.closeFile}
+                />
+
+                <div className="zoom-indicator">
+                  <span>Zoom: {editorZoom}px</span>
+                  <div className="zoom-controls">
+                    <button onClick={() => {
+                      const newZoom = Math.max(8, editorZoom - 1);
+                      setEditorZoom(newZoom);
+                    }} title="Zoom Out (Ctrl + Mouse Wheel Down)">−</button>
+                    <button onClick={() => setEditorZoom(14)} title="Reset Zoom">100%</button>
+                    <button onClick={() => {
+                      const newZoom = Math.min(72, editorZoom + 1);
+                      setEditorZoom(newZoom);
+                    }} title="Zoom In (Ctrl + Mouse Wheel Up)">+</button>
+                    <button onClick={handleForceRefresh} title="Force Compile (Debug)">🔄</button>
+                  </div>
+                </div>
+
+                <div className="editor-container-inner">
+                  <Editor
+                    height="100%"
+                    language="latex"
+                    defaultValue=""
+                    value={activeFileContent}
+                    onChange={(value) => {
+                      if (projectState.activeFile) {
+                        projectState.updateFile(projectState.activeFile, value || '');
+                      }
+                    }}
+                    theme="vs-dark"
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: editorZoom,
+                      lineNumbers: 'on',
+                      roundedSelection: false,
+                      scrollBeyondLastLine: false,
+                      automaticLayout: true,
+                      wordWrap: 'on',
+                    }}
+                    beforeMount={(monaco) => {
               console.log('Monaco beforeMount:', monaco);
 
               // Define LaTeX language with proper syntax highlighting
@@ -473,43 +546,48 @@ function App() {
               }
             }}
           />
-        </div>
-      </div>
-
-      {/* PDF Preview Panel */}
-      <div className="preview-panel">
-        <div className="panel-header">
-          <h2>PDF Preview</h2>
-          <div className="header-controls">
-            {projectState.mainFile && (
-              <span className="main-file-indicator">
-                Compiling: {projectState.files.get(projectState.mainFile)?.name}
-              </span>
-            )}
-            <span className="file-count" title={`Files: ${Array.from(projectState.files.keys()).join(', ')}`}>
-              {projectState.files.size} files
-            </span>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="pdf-container">
-          {error && (
-            <div className="error-display">
-              <strong>Compilation Error:</strong>{<br />}
-              {error}
+
+          <div className="preview-panel">
+            <div className="panel-header">
+              <h2>PDF Preview</h2>
+              <div className="header-controls">
+                <span className={`compile-status ${compileStatusVariant}`}>
+                  {compileStatusLabel}
+                </span>
+                {projectState.mainFile && (
+                  <span className="main-file-indicator">
+                    Compiling: {projectState.files.get(projectState.mainFile)?.name}
+                  </span>
+                )}
+                <span className="file-count" title={`Files: ${Array.from(projectState.files.keys()).join(', ')}`}>
+                  {projectState.files.size} files
+                </span>
+              </div>
             </div>
-          )}
-          {pdfUrl && !error ? (
-            <iframe
-              src={pdfUrl}
-              className="pdf-iframe"
-              title="PDF Preview"
-            />
-          ) : !error ? (
-            <div className="loading">
-              {compiling ? 'Compiling LaTeX...' : 'PDF will appear here'}
+            <div className="pdf-container">
+              {error && (
+                <div className="error-display">
+                  <strong>Compilation Error:</strong>{<br />}
+                  {error}
+                </div>
+              )}
+              {pdfUrl && !error ? (
+                <iframe
+                  src={pdfUrl}
+                  className="pdf-iframe"
+                  title="PDF Preview"
+                />
+              ) : !error ? (
+                <div className="loading">
+                  {compiling ? 'Compiling LaTeX...' : 'PDF will appear here'}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          </div>
         </div>
       </div>
     </div>

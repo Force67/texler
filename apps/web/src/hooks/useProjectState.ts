@@ -28,22 +28,36 @@ type WorkspaceListResponse = { workspaces: WorkspaceSummary[] };
 type ProjectResponse = { project: ProjectDetails };
 type FileResponse = { file: { path: string } };
 
-export const useProjectState = () => {
-  const [state, setState] = useState<ProjectState>({
-    files: new Map(),
-    openFiles: [],
-    activeFile: null,
-    mainFile: null,
-    projectPath: null,
-    workspaceId: null,
-    projectId: null,
-    workspaceName: null,
-    projectName: null,
-    workspaces: [],
-    loading: true,
-  });
+const createInitialState = (): ProjectState => ({
+  files: new Map(),
+  openFiles: [],
+  activeFile: null,
+  mainFile: null,
+  projectPath: null,
+  workspaceId: null,
+  projectId: null,
+  workspaceName: null,
+  projectName: null,
+  workspaces: [],
+  loading: true,
+});
+
+export const useProjectState = (authToken?: string | null) => {
+  const [state, setState] = useState<ProjectState>(createInitialState);
   const [version, setVersion] = useState(0);
   const pendingSaves = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const isAuthenticated = Boolean(authToken || getAuthToken());
+
+  useEffect(() => {
+    if (authToken) {
+      api.defaults.headers.common = {
+        ...(api.defaults.headers.common || {}),
+        Authorization: `Bearer ${authToken}`,
+      };
+    } else if (api.defaults.headers.common?.Authorization) {
+      delete api.defaults.headers.common.Authorization;
+    }
+  }, [authToken]);
 
   const hydrateProject = useCallback((workspaceId: string, project: ProjectDetails, workspaceName?: string | null) => {
     const files = new Map<string, FileNode>();
@@ -77,6 +91,9 @@ export const useProjectState = () => {
   }, []);
 
   const refreshWorkspaces = useCallback(async () => {
+    if (!isAuthenticated) {
+      return [] as WorkspaceSummary[];
+    }
     try {
       const response = await api.get<WorkspaceListResponse>('/api/v1/workspaces');
       const workspaces = response.data.workspaces || [];
@@ -86,9 +103,10 @@ export const useProjectState = () => {
       console.error('Failed to load workspaces', error);
       return [] as WorkspaceSummary[];
     }
-  }, []);
+  }, [isAuthenticated]);
 
   const loadProject = useCallback(async (workspaceId: string, projectId: string, workspaceName?: string | null) => {
+    if (!isAuthenticated) return;
     setState(prev => ({ ...prev, loading: true }));
     try {
       const response = await api.get<ProjectResponse>(`/api/v1/workspaces/${workspaceId}/projects/${projectId}`);
@@ -97,9 +115,13 @@ export const useProjectState = () => {
       console.error('Failed to load project', error);
       setState(prev => ({ ...prev, loading: false }));
     }
-  }, [hydrateProject]);
+  }, [hydrateProject, isAuthenticated]);
 
   const bootstrap = useCallback(async () => {
+    if (!isAuthenticated) {
+      setState(prev => ({ ...createInitialState(), loading: false }));
+      return;
+    }
     const workspaces = await refreshWorkspaces();
     if (!workspaces.length) {
       setState(prev => ({ ...prev, loading: false }));
@@ -118,16 +140,27 @@ export const useProjectState = () => {
         loading: false,
       }));
     }
-  }, [refreshWorkspaces, loadProject]);
+  }, [refreshWorkspaces, loadProject, isAuthenticated]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setState({ ...createInitialState(), loading: false });
+      return;
+    }
     bootstrap();
-  }, [bootstrap]);
+  }, [isAuthenticated, bootstrap]);
 
   useEffect(() => () => {
     pendingSaves.current.forEach(timeout => clearTimeout(timeout));
     pendingSaves.current.clear();
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      pendingSaves.current.forEach(timeout => clearTimeout(timeout));
+      pendingSaves.current.clear();
+    }
+  }, [isAuthenticated]);
 
   const createWorkspace = useCallback(async (name: string, description?: string) => {
     const response = await api.post<{ workspace: WorkspaceSummary }>(
