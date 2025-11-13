@@ -7,19 +7,21 @@ interface FileBrowserProps {
   mainFile: string | null;
   onFileClick: (path: string) => void;
   onMainFileSet: (path: string) => void;
-  onAddFile: (path: string, template?: string) => void;
+  onAddFile: (path: string, template?: string) => Promise<void> | void;
+  existingFiles: Set<string>;
 }
 
 interface AddFileDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddFile: (path: string, template?: string) => void;
+  onAddFile: (path: string, template?: string) => Promise<void> | void;
   existingFiles: Set<string>;
 }
 
 const AddFileDialog: React.FC<AddFileDialogProps> = ({ isOpen, onClose, onAddFile, existingFiles }) => {
   const [fileName, setFileName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('empty');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const templates = [
     { value: 'empty', label: 'Empty File', content: '' },
@@ -29,14 +31,21 @@ const AddFileDialog: React.FC<AddFileDialogProps> = ({ isOpen, onClose, onAddFil
     { value: 'tex-figure', label: 'Figure Environment', content: '\\begin{figure}[h]\n\\centering\n\\includegraphics[width=0.8\\textwidth]{filename}\n\\caption{Figure caption}\n\\label{fig:label}\n\\end{figure}' },
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (fileName.trim()) {
+    if (!fileName.trim() || isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
       const template = templates.find(t => t.value === selectedTemplate);
-      onAddFile(fileName.trim(), template?.content);
+      await onAddFile(fileName.trim(), template?.content);
       setFileName('');
       setSelectedTemplate('empty');
       onClose();
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -97,9 +106,9 @@ const AddFileDialog: React.FC<AddFileDialogProps> = ({ isOpen, onClose, onAddFil
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={!!validationError || !fileName.trim()}
+              disabled={!!validationError || !fileName.trim() || isSubmitting}
             >
-              Add File
+              {isSubmitting ? 'Adding...' : 'Add File'}
             </button>
           </div>
         </form>
@@ -115,6 +124,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
   onFileClick,
   onMainFileSet,
   onAddFile,
+  existingFiles,
 }) => {
   const [showAddFileDialog, setShowAddFileDialog] = useState(false);
 
@@ -225,7 +235,7 @@ export const FileBrowser: React.FC<FileBrowserProps> = ({
         isOpen={showAddFileDialog}
         onClose={() => setShowAddFileDialog(false)}
         onAddFile={onAddFile}
-        existingFiles={new Set(files.keys())}
+        existingFiles={existingFiles}
       />
     </div>
   );

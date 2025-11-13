@@ -6,6 +6,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::{CompilationStatus, Entity, LatexEngine, UserRole};
+use super::workspace::Workspace;
 use super::user::UserProfile;
 
 /// Project model
@@ -15,6 +16,7 @@ pub struct Project {
     pub name: String,
     pub description: Option<String>,
     pub owner_id: Uuid,
+    pub workspace_id: Uuid,
     pub is_public: bool,
     pub main_file_path: String,
     pub latex_engine: LatexEngine,
@@ -53,6 +55,7 @@ pub struct CreateProject {
     pub custom_args: Option<Vec<String>>,
     pub bibliography_path: Option<String>,
     pub tags: Option<Vec<String>>,
+    pub workspace_id: Option<Uuid>,
 }
 
 /// Project update request
@@ -146,17 +149,23 @@ impl Project {
     pub async fn create(
         db: &sqlx::PgPool,
         owner_id: Uuid,
-        create_project: CreateProject,
+        mut create_project: CreateProject,
     ) -> Result<Self, crate::error::AppError> {
+        let workspace_id = create_project.workspace_id.ok_or_else(|| {
+            crate::error::AppError::Validation("Workspace ID is required".to_string())
+        })?;
+        Workspace::find_by_id(db, workspace_id, owner_id).await?;
+
         let project = sqlx::query_as::<_, Project>(
             r#"
             INSERT INTO projects (
-                name, description, owner_id, is_public, main_file_path,
+                workspace_id, name, description, owner_id, is_public, main_file_path,
                 latex_engine, output_format, custom_args, bibliography_path
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING *
             "#
         )
+        .bind(workspace_id)
         .bind(create_project.name)
         .bind(create_project.description)
         .bind(owner_id)
@@ -351,6 +360,68 @@ impl Project {
         .map_err(crate::error::AppError::Database)?;
 
         Ok(count > 0)
+    }
+
+    /// Update the project's main file path (and sync file flags)
+    pub async fn set_main_file(
+        db: &sqlx::PgPool,
+        project_id: Uuid,
+        user_id: Uuid,
+        path: &str,
+    ) -> Result<Self, crate::error::AppError> {
+        if !Self::is_owner(db, project_id, user_id).await? {
+            return Err(crate::error::AppError::Authorization(
+                "Only the project owner can update the main file".to_string(),
+            ));
+        }
+
+        let exists = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FROM files
+            WHERE project_id = $1 AND path = $2 AND is_deleted = false
+            "#
+        )
+        .bind(project_id)
+        .bind(path)
+        .fetch_one(db)
+        .await
+        .map_err(crate::error::AppError::Database)?;
+
+        if exists == 0 {
+            return Err(crate::error::AppError::NotFound {
+                entity: "File".to_string(),
+                id: path.to_string(),
+            });
+        }
+
+        let project = sqlx::query_as::<_, Project>(
+            r#"
+            UPDATE projects
+            SET main_file_path = $1, updated_at = NOW()
+            WHERE id = $2
+            RETURNING *
+            "#
+        )
+        .bind(path)
+        .bind(project_id)
+        .fetch_one(db)
+        .await
+        .map_err(crate::error::AppError::Database)?;
+
+        sqlx::query(
+            r#"
+            UPDATE files
+            SET is_main = (path = $2)
+            WHERE project_id = $1
+            "#
+        )
+        .bind(project_id)
+        .bind(path)
+        .execute(db)
+        .await
+        .map_err(crate::error::AppError::Database)?;
+
+        Ok(project)
     }
 
     /// Check if user is owner

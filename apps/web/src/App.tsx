@@ -6,8 +6,7 @@ import { useProjectState } from './hooks/useProjectState';
 import { FileBrowser } from './components/FileBrowser';
 import { FileTabs } from './components/FileTabs';
 import './App.css';
-
-const BACKEND_API_URL = 'http://localhost:8080';
+import { BACKEND_API_URL } from './config';
 
 function App() {
   const projectState = useProjectState();
@@ -15,7 +14,6 @@ function App() {
   const [compiling, setCompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isFirstCompile, setIsFirstCompile] = useState(true);
-  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [editorZoom, setEditorZoom] = useState(14);
 
   const compileLatex = useCallback(async () => {
@@ -87,6 +85,10 @@ function App() {
 
   // Force compilation when files or active file changes
   useEffect(() => {
+    if (!projectState.isReady) {
+      return;
+    }
+
     const timer = setTimeout(() => {
       compileLatex();
     }, 1000);
@@ -94,20 +96,33 @@ function App() {
     return () => clearTimeout(timer);
   }, [
     projectState.activeFile,
-    projectState.version,  // Version tracks file additions/changes
+    projectState.version,
+    projectState.isReady,
     compileLatex
   ]);
 
-  const handleCreateNewProject = () => {
-    projectState.createProject();
-    setShowProjectMenu(false);
+  const handleCreateNewProject = async () => {
+    await projectState.createProject();
   };
 
-  const handleAddFile = () => {
-    const fileName = prompt('Enter file name (e.g., newfile.tex or sections/newfile.tex):');
-    if (fileName) {
-      projectState.addFile(fileName);
-      setShowProjectMenu(false);
+  const handleCreateWorkspace = async () => {
+    const name = prompt('Workspace name (e.g., Research Notes)');
+    if (name) {
+      await projectState.createWorkspace(name.trim());
+    }
+  };
+
+  const handleWorkspaceChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const workspaceId = event.target.value;
+    if (workspaceId) {
+      await projectState.selectWorkspace(workspaceId);
+    }
+  };
+
+  const handleProjectChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const projectId = event.target.value;
+    if (projectId) {
+      await projectState.selectProject(projectId);
     }
   };
 
@@ -123,36 +138,73 @@ function App() {
 
   const activeFileContent = projectState.getActiveFileContent();
 
+  const workspaceOptions = projectState.workspaces;
+  const selectedWorkspace = workspaceOptions.find(ws => ws.id === projectState.workspaceId) || workspaceOptions[0];
+  const projectOptions = selectedWorkspace?.projects ?? [];
+  const fileKeys = new Set(Array.from(projectState.files.keys()));
+
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Texler - Multi-File LaTeX Editor</h1>
-        <div className="header-controls">
-          <div className="project-dropdown">
-            <button
-              className="project-btn"
-              onClick={() => setShowProjectMenu(!showProjectMenu)}
-            >
-              📁 Project
-            </button>
-            {showProjectMenu && (
-              <div className="project-menu">
-                <button onClick={handleCreateNewProject}>
-                  📄 New Project
-                </button>
-                <button onClick={handleAddFile}>
-                  ➕ Add File
-                </button>
-                <button onClick={() => setShowProjectMenu(false)}>
-                  ❌ Cancel
+        <div className="header-left">
+          <h1>Texler - Multi-File LaTeX Editor</h1>
+          <div className="workspace-selectors">
+            <div className="workspace-control">
+              <label htmlFor="workspace-select">Workspace</label>
+              <div className="control-row">
+                <select
+                  id="workspace-select"
+                  value={projectState.workspaceId ?? ''}
+                  onChange={handleWorkspaceChange}
+                >
+                  {workspaceOptions.length === 0 && (
+                    <option value="" disabled>
+                      Loading...
+                    </option>
+                  )}
+                  {workspaceOptions.map(workspace => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+                </select>
+                <button className="control-btn" onClick={handleCreateWorkspace}>
+                  +
                 </button>
               </div>
-            )}
+            </div>
+            <div className="workspace-control">
+              <label htmlFor="project-select">Project</label>
+              <div className="control-row">
+                <select
+                  id="project-select"
+                  value={projectState.projectId ?? ''}
+                  onChange={handleProjectChange}
+                  disabled={!projectOptions.length}
+                >
+                  {!projectOptions.length && (
+                    <option value="" disabled>
+                      {projectState.workspaceId ? 'No projects yet' : 'Select workspace'}
+                    </option>
+                  )}
+                  {projectOptions.map(project => (
+                    <option key={project.id} value={project.id}>
+                      {project.name}
+                    </option>
+                  ))}
+                </select>
+                <button className="control-btn" onClick={handleCreateNewProject}>
+                  +
+                </button>
+              </div>
+            </div>
           </div>
+        </div>
+        <div className="header-controls">
           <button
             className="compile-button"
             onClick={compileLatex}
-            disabled={compiling}
+            disabled={compiling || !projectState.isReady}
           >
             {compiling ? 'Compiling...' : 'Compile'}
           </button>
@@ -168,6 +220,7 @@ function App() {
             onFileClick={projectState.openFile}
             onMainFileSet={projectState.setMainFile}
             onAddFile={projectState.addFile}
+            existingFiles={fileKeys}
           />
         </div>
 

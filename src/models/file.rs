@@ -18,6 +18,7 @@ pub struct File {
     pub name: String,
     pub path: String,
     pub content_type: ContentType,
+    pub content: String,
     pub storage_strategy: StorageStrategy,
     pub content_hash: Option<String>,
     pub size: i64,
@@ -196,11 +197,15 @@ impl File {
         let file = sqlx::query_as::<_, File>(
             r#"
             INSERT INTO files (
-                project_id, name, path, content_type, storage_strategy,
+                project_id, name, path, content_type, content, storage_strategy,
                 content_hash, size, line_count, word_count, latex_metadata,
                 version, checksum, is_main, is_deleted, created_by, last_modified,
                 created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $6, false, false, $11, NOW(), NOW(), NOW())
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, $9, $10, $11,
+                1, $12, $13, false, $14, NOW(), NOW(), NOW()
+            )
             RETURNING *
             "#
         )
@@ -208,6 +213,7 @@ impl File {
         .bind(name)
         .bind(&path)
         .bind(content_type as ContentType)
+        .bind(&content)
         .bind(StorageStrategy::default())
         .bind(content_hash.as_ref().unwrap())
         .bind(size)
@@ -347,20 +353,22 @@ impl File {
         let file = sqlx::query_as::<_, File>(
             r#"
             UPDATE files SET
-                content_hash = $1,
-                size = $2,
-                line_count = $3,
-                word_count = $4,
-                latex_metadata = $5,
+                content = $1,
+                content_hash = $2,
+                size = $3,
+                line_count = $4,
+                word_count = $5,
+                latex_metadata = $6,
                 version = version + 1,
-                checksum = $1,
-                last_modified_by = $6,
+                checksum = $2,
+                last_modified_by = $7,
                 last_modified = NOW(),
                 updated_at = NOW()
-            WHERE id = $7
+            WHERE id = $8
             RETURNING *
             "#
         )
+        .bind(&content)
         .bind(content_hash.as_ref().unwrap())
         .bind(size)
         .bind(line_count)

@@ -2,6 +2,7 @@
 
 use crate::error::AppError;
 use crate::models::project::{Project, CreateProject, UpdateProject, ProjectWithDetails, ProjectCollaborator, ProjectStats};
+use crate::models::workspace::Workspace;
 use crate::models::user::UserProfile;
 use crate::models::{PaginationParams, UserRole};
 use axum::{
@@ -106,8 +107,15 @@ pub async fn list_projects(
 pub async fn create_project(
     State(state): State<AppState>,
     auth_user: axum::Extension<crate::models::auth::AuthContext>,
-    Json(payload): Json<CreateProject>,
+    Json(mut payload): Json<CreateProject>,
 ) -> Result<impl IntoResponse, AppError> {
+    if let Some(workspace_id) = payload.workspace_id {
+        Workspace::find_by_id(&state.db_pool, workspace_id, auth_user.user_id).await?;
+    } else {
+        let workspace = Workspace::ensure_default(&state.db_pool, auth_user.user_id).await?;
+        payload.workspace_id = Some(workspace.id);
+    }
+
     let project = Project::create(&state.db_pool, auth_user.user_id, payload).await?;
     let project_with_details = Project::get_with_details(&state.db_pool, project.id, auth_user.user_id).await?;
 

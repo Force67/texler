@@ -14,6 +14,7 @@ pub mod auth;
 pub mod token_blacklist;
 pub mod password_reset;
 pub mod email_verification;
+pub mod workspace;
 
 /// Common trait for database entities
 pub trait Entity {

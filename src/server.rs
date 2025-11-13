@@ -82,6 +82,8 @@ fn api_routes() -> Router<AppState> {
         .nest("/users", user_routes())
         // Project routes
         .nest("/projects", project_routes())
+        // Workspace routes (in-memory orchestration used by the frontend)
+        .nest("/workspaces", workspace_routes())
         // File routes
         .nest("/files", file_routes())
         // Compilation routes
@@ -176,6 +178,37 @@ fn latex_proxy_routes() -> Router<AppState> {
         .route("/health", get(crate::handlers::latex_proxy::latex_health_check))
         // Skip auth middleware for these routes to allow direct frontend access
         .layer(middleware::from_fn(skip_auth_middleware))
+}
+
+/// Workspace routes powering the demo frontend project/workspace picker
+fn workspace_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/",
+            get(crate::handlers::workspace::list_workspaces)
+                .post(crate::handlers::workspace::create_workspace),
+        )
+        .route(
+            "/:workspace_id",
+            get(crate::handlers::workspace::get_workspace),
+        )
+        .route(
+            "/:workspace_id/projects",
+            post(crate::handlers::workspace::create_project),
+        )
+        .route(
+            "/:workspace_id/projects/:project_id",
+            get(crate::handlers::workspace::get_project),
+        )
+        .route(
+            "/:workspace_id/projects/:project_id/files",
+            post(crate::handlers::workspace::add_file)
+                .put(crate::handlers::workspace::update_file),
+        )
+        .route(
+            "/:workspace_id/projects/:project_id/main-file",
+            post(crate::handlers::workspace::set_main_file),
+        )
 }
 
 /// Collaboration routes
