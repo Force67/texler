@@ -22,6 +22,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             e
         })?;
 
+    // Run database migrations
+    texler_backend::migrate::run_migrations(&db_pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to run database migrations: {}", e);
+            e
+        })?;
+
+    // Ensure admin user exists
+    texler_backend::admin_init::ensure_admin_user(&db_pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to initialize admin user: {}", e);
+            e
+        })?;
+
     server::start_server(config, db_pool)
         .await
         .map_err(|e| {

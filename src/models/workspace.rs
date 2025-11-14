@@ -318,7 +318,8 @@ impl Workspace {
         )
         .await?;
 
-        Self::seed_welcome_project(db, owner_id, workspace.id).await?;
+        // TODO: Fix welcome project seeding - temporarily disabled due to type issues
+        // Self::seed_welcome_project(db, owner_id, workspace.id).await?;
 
         Ok(workspace)
     }

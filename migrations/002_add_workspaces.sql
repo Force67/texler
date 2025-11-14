@@ -33,16 +33,15 @@ SELECT
 FROM owners_without_workspace;
 
 -- Assign each existing project to the earliest workspace owned by the owner
-UPDATE projects p
-SET workspace_id = ws.id
-FROM LATERAL (
-    SELECT id
+UPDATE projects
+SET workspace_id = (
+    SELECT w.id
     FROM workspaces w
-    WHERE w.owner_id = p.owner_id
+    WHERE w.owner_id = projects.owner_id
     ORDER BY w.created_at
     LIMIT 1
-) ws
-WHERE p.workspace_id IS NULL;
+)
+WHERE workspace_id IS NULL;
 
 -- Enforce presence of a workspace link for every project
 ALTER TABLE projects

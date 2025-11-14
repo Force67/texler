@@ -9,7 +9,7 @@ use crate::models::{Entity, UserRole};
 
 /// Authentication method
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "text", rename_all = "lowercase")]
+#[sqlx(rename_all = "lowercase")]
 pub enum AuthMethod {
     Password,
     Oidc,

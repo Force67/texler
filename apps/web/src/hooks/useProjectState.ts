@@ -380,6 +380,7 @@ export const useProjectState = (authToken?: string | null) => {
     workspaces: state.workspaces,
     createWorkspace,
     createProject,
+    refreshWorkspaces,
     addFile,
     updateFile,
     openFile,

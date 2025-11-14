@@ -210,6 +210,26 @@ pub enum UserRole {
     Viewer,
 }
 
+/// LaTeX engine type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+pub enum LatexEngine {
+    #[serde(rename = "pdflatex")]
+    #[sqlx(rename = "pdflatex")]
+    Pdflatex,
+    #[serde(rename = "xelatex")]
+    #[sqlx(rename = "xelatex")]
+    Xelatex,
+    #[serde(rename = "lualatex")]
+    #[sqlx(rename = "lualatex")]
+    Lualatex,
+}
+
+impl Default for LatexEngine {
+    fn default() -> Self {
+        Self::Pdflatex
+    }
+}
+
 /// Compilation status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 pub enum CompilationStatus {
@@ -239,22 +259,4 @@ impl Default for CompilationStatus {
     }
 }
 
-/// LaTeX engine type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
-pub enum LatexEngine {
-    #[serde(rename = "pdflatex")]
-    #[sqlx(rename = "pdflatex")]
-    Pdflatex,
-    #[serde(rename = "xelatex")]
-    #[sqlx(rename = "xelatex")]
-    Xelatex,
-    #[serde(rename = "lualatex")]
-    #[sqlx(rename = "lualatex")]
-    Lualatex,
-}
 
-impl Default for LatexEngine {
-    fn default() -> Self {
-        Self::Pdflatex
-    }
-}

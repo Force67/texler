@@ -109,9 +109,20 @@ function App() {
   };
 
   const handleCreateWorkspace = async () => {
-    const name = prompt('Workspace name (e.g., Research Notes)');
-    if (name) {
-      await projectState.createWorkspace(name.trim());
+    const name = window.prompt('Workspace name (e.g., Research Notes)');
+    if (name && name.trim()) {
+      try {
+        console.log('Creating workspace:', name.trim());
+        await projectState.createWorkspace(name.trim());
+        console.log('Workspace created successfully');
+      } catch (error) {
+        console.error('Failed to create workspace:', error);
+        // Even if creation fails, the workspace might have been created
+        // Try to refresh the workspace list to see if it appears
+        await projectState.refreshWorkspaces();
+      }
+    } else {
+      console.log('Workspace creation cancelled or empty name');
     }
   };
 

@@ -23,10 +23,12 @@
 //! }
 //! ```
 
+pub mod admin_init;
 pub mod config;
 pub mod error;
 pub mod handlers;
 pub mod middleware;
+pub mod migrate;
 pub mod models;
 pub mod server;
 pub mod websocket;
